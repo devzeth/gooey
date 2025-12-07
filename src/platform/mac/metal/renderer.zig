@@ -7,7 +7,6 @@ const geometry = @import("../../../core/geometry.zig");
 const scene_mod = @import("../../../core/scene.zig");
 const mtl = @import("api.zig");
 const quad_shader = @import("quad.zig");
-const shaders = @import("shaders.zig");
 const shadow_shader = @import("shadow.zig");
 const text_pipeline = @import("text.zig");
 const Atlas = @import("../../../font/atlas.zig").Atlas;
@@ -24,10 +23,6 @@ pub const Renderer = struct {
     layer: objc.Object,
 
     unified_memory: bool, // True on Apple Silicon
-
-    // Triangle pipeline (existing demo)
-    pipeline_state: ?objc.Object,
-    vertex_buffer: ?objc.Object,
 
     // Quad pipeline (new)
     quad_pipeline_state: ?objc.Object,
@@ -79,8 +74,6 @@ pub const Renderer = struct {
             .device = device,
             .command_queue = command_queue,
             .layer = layer,
-            .pipeline_state = null,
-            .vertex_buffer = null,
             .quad_pipeline_state = null,
             .quad_unit_vertex_buffer = null,
             .quad_instance_buffer = null,
@@ -97,7 +90,6 @@ pub const Renderer = struct {
         };
 
         try self.createMSAATexture();
-        try self.setupPipeline();
         try self.setupQuadPipeline();
         try self.setupShadowPipeline();
 
@@ -157,116 +149,6 @@ pub const Renderer = struct {
         self.msaa_texture = objc.Object.fromId(texture_ptr);
     }
 
-    fn setupPipeline(self: *Self) !void {
-        // Create shader library from source
-        const NSString = objc.getClass("NSString") orelse return error.ClassNotFound;
-        const source_str = NSString.msgSend(
-            objc.Object,
-            "stringWithUTF8String:",
-            .{shaders.triangle_shader.ptr},
-        );
-
-        // Compile shader library
-        const library_ptr = self.device.msgSend(
-            ?*anyopaque,
-            "newLibraryWithSource:options:error:",
-            .{ source_str.value, @as(?*anyopaque, null), @as(?*anyopaque, null) },
-        );
-        if (library_ptr == null) {
-            std.debug.print("Failed to compile shader library\n", .{});
-            return error.ShaderCompilationFailed;
-        }
-        const library = objc.Object.fromId(library_ptr);
-        defer library.msgSend(void, "release", .{});
-
-        // Get vertex and fragment functions
-        const vertex_name = NSString.msgSend(objc.Object, "stringWithUTF8String:", .{"vertex_main"});
-        const fragment_name = NSString.msgSend(objc.Object, "stringWithUTF8String:", .{"fragment_main"});
-
-        const vertex_fn_ptr = library.msgSend(?*anyopaque, "newFunctionWithName:", .{vertex_name.value});
-        const fragment_fn_ptr = library.msgSend(?*anyopaque, "newFunctionWithName:", .{fragment_name.value});
-
-        if (vertex_fn_ptr == null or fragment_fn_ptr == null) {
-            return error.ShaderFunctionNotFound;
-        }
-        const vertex_fn = objc.Object.fromId(vertex_fn_ptr);
-        const fragment_fn = objc.Object.fromId(fragment_fn_ptr);
-        defer vertex_fn.msgSend(void, "release", .{});
-        defer fragment_fn.msgSend(void, "release", .{});
-
-        // Create vertex descriptor
-        const MTLVertexDescriptor = objc.getClass("MTLVertexDescriptor") orelse
-            return error.ClassNotFound;
-        const vertex_desc = MTLVertexDescriptor.msgSend(objc.Object, "vertexDescriptor", .{});
-
-        // Position attribute (float2)
-        const attributes = vertex_desc.msgSend(objc.Object, "attributes", .{});
-        const attr0 = attributes.msgSend(objc.Object, "objectAtIndexedSubscript:", .{@as(c_ulong, 0)});
-        attr0.msgSend(void, "setFormat:", .{@intFromEnum(mtl.MTLVertexFormat.float2)});
-        attr0.msgSend(void, "setOffset:", .{@as(c_ulong, 0)});
-        attr0.msgSend(void, "setBufferIndex:", .{@as(c_ulong, 0)});
-
-        // Color attribute (float4)
-        const attr1 = attributes.msgSend(objc.Object, "objectAtIndexedSubscript:", .{@as(c_ulong, 1)});
-        attr1.msgSend(void, "setFormat:", .{@intFromEnum(mtl.MTLVertexFormat.float4)});
-        attr1.msgSend(void, "setOffset:", .{@as(c_ulong, 8)}); // After float2 (8 bytes)
-        attr1.msgSend(void, "setBufferIndex:", .{@as(c_ulong, 0)});
-
-        // Layout
-        const layouts = vertex_desc.msgSend(objc.Object, "layouts", .{});
-        const layout0 = layouts.msgSend(objc.Object, "objectAtIndexedSubscript:", .{@as(c_ulong, 0)});
-        layout0.msgSend(void, "setStride:", .{@as(c_ulong, @sizeOf(Vertex))});
-
-        // Create pipeline descriptor
-        const MTLRenderPipelineDescriptor = objc.getClass("MTLRenderPipelineDescriptor") orelse
-            return error.ClassNotFound;
-        const pipeline_desc = MTLRenderPipelineDescriptor.msgSend(objc.Object, "alloc", .{});
-        const pipeline_desc_init = pipeline_desc.msgSend(objc.Object, "init", .{});
-
-        pipeline_desc_init.msgSend(void, "setVertexFunction:", .{vertex_fn.value});
-        pipeline_desc_init.msgSend(void, "setFragmentFunction:", .{fragment_fn.value});
-        pipeline_desc_init.msgSend(void, "setVertexDescriptor:", .{vertex_desc.value});
-        pipeline_desc_init.msgSend(void, "setSampleCount:", .{@as(c_ulong, self.sample_count)});
-
-        // Set pixel format
-        const color_attachments = pipeline_desc_init.msgSend(objc.Object, "colorAttachments", .{});
-        const color_attachment_0 = color_attachments.msgSend(objc.Object, "objectAtIndexedSubscript:", .{@as(c_ulong, 0)});
-        color_attachment_0.msgSend(void, "setPixelFormat:", .{@intFromEnum(mtl.MTLPixelFormat.bgra8unorm)});
-
-        // Create pipeline state
-        const pipeline_ptr = self.device.msgSend(
-            ?*anyopaque,
-            "newRenderPipelineStateWithDescriptor:error:",
-            .{ pipeline_desc_init.value, @as(?*anyopaque, null) },
-        );
-        if (pipeline_ptr == null) {
-            return error.PipelineCreationFailed;
-        }
-        self.pipeline_state = objc.Object.fromId(pipeline_ptr);
-
-        // Create vertex buffer with triangle vertices
-        const buffer_storage: mtl.MTLResourceOptions = if (self.unified_memory)
-            .{ .storage_mode = .shared }
-        else
-            .{ .storage_mode = .managed };
-
-        const buffer_ptr = self.device.msgSend(
-            ?*anyopaque,
-            "newBufferWithBytes:length:options:",
-            .{
-                @as(*const anyopaque, @ptrCast(&shaders.triangle_vertices)),
-                @as(c_ulong, @sizeOf(@TypeOf(shaders.triangle_vertices))),
-                @as(c_ulong, @bitCast(buffer_storage)),
-            },
-        );
-
-        if (buffer_ptr == null) {
-            return error.BufferCreationFailed;
-        }
-        self.vertex_buffer = objc.Object.fromId(buffer_ptr);
-    }
-
-    // Add new method:
     fn setupShadowPipeline(self: *Self) !void {
         const NSString = objc.getClass("NSString") orelse return error.ClassNotFound;
         const source_str = NSString.msgSend(
@@ -461,8 +343,6 @@ pub const Renderer = struct {
 
     pub fn deinit(self: *Self) void {
         if (self.msaa_texture) |tex| tex.msgSend(void, "release", .{});
-        if (self.pipeline_state) |ps| ps.msgSend(void, "release", .{});
-        if (self.vertex_buffer) |vb| vb.msgSend(void, "release", .{});
         if (self.quad_pipeline_state) |ps| ps.msgSend(void, "release", .{});
         if (self.quad_unit_vertex_buffer) |vb| vb.msgSend(void, "release", .{});
         if (self.quad_instance_buffer) |ib| ib.msgSend(void, "release", .{});
@@ -472,10 +352,10 @@ pub const Renderer = struct {
     }
 
     pub fn clear(self: *Self, color: geometry.Color) void {
-        self.render(color, true);
+        self.render(color);
     }
 
-    pub fn render(self: *Self, clear_color: geometry.Color, draw_triangle: bool) void {
+    pub fn render(self: *Self, clear_color: geometry.Color) void {
         const drawable_ptr = self.layer.msgSend(?*anyopaque, "nextDrawable", .{});
         if (drawable_ptr == null) return;
         const drawable = objc.Object.fromId(drawable_ptr);
@@ -504,24 +384,6 @@ pub const Renderer = struct {
         if (encoder_ptr == null) return;
         const encoder = objc.Object.fromId(encoder_ptr);
 
-        if (draw_triangle) {
-            if (self.pipeline_state) |pipeline| {
-                if (self.vertex_buffer) |buffer| {
-                    encoder.msgSend(void, "setRenderPipelineState:", .{pipeline.value});
-                    encoder.msgSend(void, "setVertexBuffer:offset:atIndex:", .{
-                        buffer.value,
-                        @as(c_ulong, 0),
-                        @as(c_ulong, 0),
-                    });
-                    encoder.msgSend(void, "drawPrimitives:vertexStart:vertexCount:", .{
-                        @intFromEnum(mtl.MTLPrimitiveType.triangle),
-                        @as(c_ulong, 0),
-                        @as(c_ulong, 3),
-                    });
-                }
-            }
-        }
-
         encoder.msgSend(void, "endEncoding", .{});
         command_buffer.msgSend(void, "presentDrawable:", .{drawable.value});
         command_buffer.msgSend(void, "commit", .{});
@@ -532,7 +394,7 @@ pub const Renderer = struct {
         const quads = s.getQuads();
 
         if (shadows.len == 0 and quads.len == 0) {
-            self.render(clear_color, false);
+            self.render(clear_color);
             return;
         }
 
@@ -682,11 +544,11 @@ pub const Renderer = struct {
 
     /// Synchronous clear - waits for completion, used during live resize
     pub fn clearSynchronous(self: *Self, color: geometry.Color) void {
-        self.renderSynchronous(color, false);
+        self.renderSynchronous(color);
     }
 
     /// Synchronous render - presents with CATransaction for smooth resize
-    fn renderSynchronous(self: *Self, clear_color: geometry.Color, draw_triangle: bool) void {
+    fn renderSynchronous(self: *Self, clear_color: geometry.Color) void {
         const CATransaction = objc.getClass("CATransaction") orelse return;
 
         // Begin CA transaction
@@ -735,24 +597,6 @@ pub const Renderer = struct {
         }
         const encoder = objc.Object.fromId(encoder_ptr);
 
-        if (draw_triangle) {
-            if (self.pipeline_state) |pipeline| {
-                if (self.vertex_buffer) |buffer| {
-                    encoder.msgSend(void, "setRenderPipelineState:", .{pipeline.value});
-                    encoder.msgSend(void, "setVertexBuffer:offset:atIndex:", .{
-                        buffer.value,
-                        @as(c_ulong, 0),
-                        @as(c_ulong, 0),
-                    });
-                    encoder.msgSend(void, "drawPrimitives:vertexStart:vertexCount:", .{
-                        @intFromEnum(mtl.MTLPrimitiveType.triangle),
-                        @as(c_ulong, 0),
-                        @as(c_ulong, 3),
-                    });
-                }
-            }
-        }
-
         encoder.msgSend(void, "endEncoding", .{});
 
         // Wait until scheduled, then present via drawable (layer has presentsWithTransaction=YES)
@@ -770,7 +614,7 @@ pub const Renderer = struct {
         const quads = s.getQuads();
 
         if (shadows.len == 0 and quads.len == 0) {
-            self.renderSynchronous(clear_color, false);
+            self.renderSynchronous(clear_color);
             return;
         }
 

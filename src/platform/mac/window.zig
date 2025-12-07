@@ -30,7 +30,7 @@ pub const Window = struct {
     in_live_resize: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     pub const Options = struct {
-        title: []const u8 = "Guiz Window",
+        title: []const u8 = "gooey Window",
         width: f64 = 800,
         height: f64 = 600,
         background_color: geometry.Color = geometry.Color.init(0.2, 0.2, 0.25, 1.0),

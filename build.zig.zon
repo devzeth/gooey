@@ -1,7 +1,7 @@
 .{
-    .name = .guiz,
-    .version = "0.0.0",
-    .fingerprint = 0xd160f2d1f466069d,
+    .name = .gooey,
+    .version = "0.0.1",
+    .fingerprint = 0xfcad6172ee59f0b8,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
         .zig_objc = .{

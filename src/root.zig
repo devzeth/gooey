@@ -1,4 +1,4 @@
-//! guiz - A minimal GPU-accelerated UI framework for Zig
+//! gooey - A minimal GPU-accelerated UI framework for Zig
 //! Inspired by GPUI, targeting macOS with Metal rendering.
 
 const std = @import("std");

@@ -7,18 +7,18 @@ const Window = @import("window.zig").Window;
 
 var delegate_class: ?objc.Class = null;
 
-/// Register the GuizWindowDelegate class with the Objective-C runtime.
+/// Register the gooeyWindowDelegate class with the Objective-C runtime.
 /// Must be called once before creating any windows.
 pub fn registerClass() !void {
     if (delegate_class != null) return;
 
     const NSObject = objc.getClass("NSObject") orelse return error.ClassNotFound;
 
-    var cls = objc.allocateClassPair(NSObject, "GuizWindowDelegate") orelse
+    var cls = objc.allocateClassPair(NSObject, "gooeyWindowDelegate") orelse
         return error.ClassAllocationFailed;
 
     // Add instance variable to store pointer to Zig Window
-    if (!cls.addIvar("_guizWindow")) {
+    if (!cls.addIvar("_gooeyWindow")) {
         return error.IvarAddFailed;
     }
 
@@ -62,7 +62,7 @@ pub fn create(window: *Window) !objc.Object {
     // Store the Zig window pointer in the delegate's ivar
     // Wrap the raw pointer as an objc.Object (it's just stored as an id)
     const window_obj = objc.Object{ .value = @ptrCast(window) };
-    delegate.setInstanceVariable("_guizWindow", window_obj);
+    delegate.setInstanceVariable("_gooeyWindow", window_obj);
 
     return delegate;
 }
@@ -70,7 +70,7 @@ pub fn create(window: *Window) !objc.Object {
 /// Get the Zig Window from a delegate instance
 inline fn getWindow(self: objc.c.id) ?*Window {
     const delegate = objc.Object{ .value = self };
-    const ptr = delegate.getInstanceVariable("_guizWindow");
+    const ptr = delegate.getInstanceVariable("_gooeyWindow");
     return @ptrCast(@alignCast(ptr.value));
 }
 

@@ -10,39 +10,37 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Create the guiz module
-    const mod = b.addModule("guiz", .{
+    // Create the gooey module
+    const mod = b.addModule("gooey", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
     mod.addImport("objc", objc_dep.module("objc"));
 
+    // Link macOS frameworks to the module (needed for tests too)
+    mod.linkFramework("AppKit", .{});
+    mod.linkFramework("Metal", .{});
+    mod.linkFramework("QuartzCore", .{});
+    mod.linkFramework("CoreFoundation", .{});
+    mod.linkFramework("CoreVideo", .{});
+    mod.linkFramework("CoreText", .{});
+    mod.linkFramework("CoreGraphics", .{});
+    mod.link_libc = true;
+
     // Create the executable
     const exe = b.addExecutable(.{
-        .name = "guiz",
+        .name = "gooey",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "guiz", .module = mod },
+                .{ .name = "gooey", .module = mod },
                 .{ .name = "objc", .module = objc_dep.module("objc") },
             },
         }),
     });
-
-    // Link macOS frameworks
-    exe.root_module.linkFramework("AppKit", .{});
-    exe.root_module.linkFramework("Metal", .{});
-    exe.root_module.linkFramework("QuartzCore", .{});
-    exe.root_module.linkFramework("CoreFoundation", .{});
-    exe.root_module.linkFramework("CoreVideo", .{});
-    exe.root_module.linkFramework("CoreText", .{});
-    exe.root_module.linkFramework("CoreGraphics", .{});
-
-    // Also link libc for dispatch
-    exe.root_module.link_libc = true;
 
     b.installArtifact(exe);
 

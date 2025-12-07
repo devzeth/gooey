@@ -1,4 +1,4 @@
-//! Application context - the main entry point for a guiz application
+//! Application context - the main entry point for a gooey application
 
 const std = @import("std");
 const platform = @import("../platform/mac/platform.zig");

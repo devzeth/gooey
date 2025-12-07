@@ -1,4 +1,4 @@
-//! Font rendering system for guiz
+//! Font rendering system for gooey
 //!
 //! Provides high-level text rendering with:
 //! - Font loading and metrics
@@ -37,7 +37,7 @@ pub const TextSystem = struct {
     pub fn initWithScale(allocator: std.mem.Allocator, scale: f32) !Self {
         return .{
             .allocator = allocator,
-            .cache = try GlyphCache.initWithScale(allocator, scale),
+            .cache = try GlyphCache.init(allocator, scale),
             .shaper = Shaper.init(allocator),
             .current_face = null,
             .scale_factor = scale,

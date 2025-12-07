@@ -60,22 +60,7 @@ pub const GlyphCache = struct {
     const Self = @This();
     const RENDER_BUFFER_SIZE: u32 = 256; // Max glyph size
 
-    pub fn init(allocator: std.mem.Allocator) !Self {
-        const buffer_bytes = RENDER_BUFFER_SIZE * RENDER_BUFFER_SIZE;
-        const render_buffer = try allocator.alloc(u8, buffer_bytes);
-        @memset(render_buffer, 0);
-
-        return .{
-            .allocator = allocator,
-            .map = std.AutoHashMap(GlyphKey, CachedGlyph).init(allocator),
-            .grayscale_atlas = try Atlas.init(allocator, .grayscale),
-            .color_atlas = null,
-            .render_buffer = render_buffer,
-            .render_buffer_size = RENDER_BUFFER_SIZE,
-        };
-    }
-
-    pub fn initWithScale(allocator: std.mem.Allocator, scale: f32) !Self {
+    pub fn init(allocator: std.mem.Allocator, scale: f32) !Self {
         const buffer_bytes = RENDER_BUFFER_SIZE * RENDER_BUFFER_SIZE;
         const render_buffer = try allocator.alloc(u8, buffer_bytes);
         @memset(render_buffer, 0);
@@ -227,7 +212,7 @@ pub const GlyphCache = struct {
 };
 
 test "glyph cache render" {
-    var cache = try GlyphCache.init(std.testing.allocator);
+    var cache = try GlyphCache.init(std.testing.allocator, 1.0);
     defer cache.deinit();
 
     var face = try Face.initSystem(.monospace, 14.0);

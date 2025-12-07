@@ -1,4 +1,4 @@
-//! Metal API type definitions for guiz
+//! Metal API type definitions for gooey
 //!
 //! Clean Zig types instead of @cImport magic numbers.
 //! Inspired by Ghostty's approach - see https://github.com/ghostty-org/ghostty

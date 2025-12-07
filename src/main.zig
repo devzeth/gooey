@@ -1,26 +1,26 @@
 const std = @import("std");
-const guiz = @import("guiz");
+const gooey = @import("gooey");
 
 pub fn main() !void {
-    std.debug.print("Starting Guiz with Text...\n", .{});
+    std.debug.print("Starting gooey with Text...\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var app = try guiz.App.init(allocator);
+    var app = try gooey.App.init(allocator);
     defer app.deinit();
 
     var window = try app.createWindow(.{
-        .title = "Guiz - Text Rendering",
+        .title = "gooey - Text Rendering",
         .width = 800,
         .height = 600,
-        .background_color = guiz.Color.init(0.95, 0.95, 0.95, 1.0),
+        .background_color = gooey.Color.init(0.95, 0.95, 0.95, 1.0),
     });
     defer window.deinit();
 
     // Initialize text system with Retina scale factor
-    var text_system = try guiz.TextSystem.initWithScale(allocator, @floatCast(window.scale_factor));
+    var text_system = try gooey.TextSystem.initWithScale(allocator, @floatCast(window.scale_factor));
     defer text_system.deinit();
 
     // Load a font
@@ -33,16 +33,16 @@ pub fn main() !void {
         metrics.line_height,
     });
 
-    var scene = guiz.Scene.init(allocator);
+    var scene = gooey.Scene.init(allocator);
     defer scene.deinit();
 
     // Draw a card background
-    const card = guiz.Quad.rounded(50, 50, 700, 500, guiz.Hsla.white, 12);
-    try scene.insertShadow(guiz.Shadow.forQuad(card, 10).withColor(guiz.Hsla.init(0, 0, 0, 0.2)));
+    const card = gooey.Quad.rounded(50, 50, 700, 500, gooey.Hsla.white, 12);
+    try scene.insertShadow(gooey.Shadow.forQuad(card, 10).withColor(gooey.Hsla.init(0, 0, 0, 0.2)));
     try scene.insertQuad(card);
 
     // Render some text
-    const text = "Hello, Guiz!";
+    const text = "Hello, gooey!";
     var shaped = try text_system.shapeText(text);
     defer shaped.deinit(allocator);
 
@@ -65,7 +65,7 @@ pub fn main() !void {
             const glyph_w = @as(f32, @floatFromInt(cached.region.width)) / scale;
             const glyph_h = @as(f32, @floatFromInt(cached.region.height)) / scale;
 
-            try scene.insertGlyph(guiz.GlyphInstance.init(
+            try scene.insertGlyph(gooey.GlyphInstance.init(
                 glyph_x,
                 glyph_y,
                 glyph_w,
@@ -74,7 +74,7 @@ pub fn main() !void {
                 uv.v0,
                 uv.u1,
                 uv.v1,
-                guiz.Hsla.black,
+                gooey.Hsla.black,
             ));
         }
 
