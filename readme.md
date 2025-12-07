@@ -14,82 +14,6 @@ Gooey is a hybrid immediate/retained mode UI framework designed for building fas
 - **Scene Graph** - Collect draw commands (quads, shadows, text) for efficient batched rendering
 - **Objective-C Interop** - Clean Zig bindings via [zig-objc](https://github.com/mitchellh/zig-objc)
 
-## Architecture
-
-```mermaid
-graph TB
-    subgraph Application
-        App[App Context]
-        Window[Window]
-        Scene[Scene Graph]
-    end
-
-    subgraph Rendering
-        Renderer[Metal Renderer]
-        Text[Text Pipeline]
-    end
-
-    subgraph Text System
-        TextSys[TextSystem]
-        Cache[Glyph Cache]
-        Atlas[Texture Atlas]
-    end
-
-    subgraph Platform [Platform - macOS]
-        NSApp[NSApplication]
-        NSWin[NSWindow]
-        Metal[CAMetalLayer]
-        DL[CVDisplayLink]
-        GCD[GCD Dispatcher]
-    end
-
-    App --> Window
-    App --> Scene
-    Window --> Renderer
-    Scene --> Renderer
-    Renderer --> Text
-    Text --> Atlas
-    TextSys --> Cache
-    Cache --> Atlas
-    Window --> NSWin
-    Window --> Metal
-    Window --> DL
-    Renderer --> Metal
-```
-
-## Project Structure
-
-```
-src/
-├── main.zig # Example application
-├── root.zig # Library root, re-exports public API
-├── core/
-│ ├── app.zig # Application context
-│ ├── geometry.zig # Size, Point, Rect, Color types
-│ └── scene.zig # Scene graph (Quad, Shadow, Glyph primitives)
-├── font/
-│ ├── main.zig # TextSystem - high-level text API
-│ ├── face.zig # Font face with metrics
-│ ├── shaper.zig # Text shaping (ligatures, kerning)
-│ ├── cache.zig # Glyph cache (on-demand rendering)
-│ ├── atlas.zig # Texture atlas (skyline bin packing)
-│ └── coretext.zig # CoreText FFI bindings
-└── platform/
-└── mac/
-├── platform.zig # MacPlatform (NSApplication wrapper)
-├── window.zig # Window (NSWindow + Metal)
-├── window_delegate.zig # NSWindowDelegate for events
-├── display_link.zig # CVDisplayLink for vsync
-├── dispatcher.zig # GCD task dispatcher
-└── metal/
-├── metal.zig # Module exports
-├── api.zig # Metal type definitions
-├── renderer.zig # Main renderer
-├── quad.zig # Quad shader (rounded rects)
-├── shadow.zig # Shadow shader (SDF blur)
-└── text.zig # Text pipeline
-```
-
 ## Quick Start
 
 ### Prerequisites
@@ -138,3 +62,46 @@ zig build test # Run tests
 - **GPUI** - Zed's GPU UI framework
 - **Ghostty** - Modern terminal with Zig Metal bindings
 - **zig-objc** - Objective-C runtime bindings for Zig
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Application
+        App[App Context]
+        Window[Window]
+        Scene[Scene Graph]
+    end
+
+    subgraph Rendering
+        Renderer[Metal Renderer]
+        Text[Text Pipeline]
+    end
+
+    subgraph Text System
+        TextSys[TextSystem]
+        Cache[Glyph Cache]
+        Atlas[Texture Atlas]
+    end
+
+    subgraph Platform [Platform - macOS]
+        NSApp[NSApplication]
+        NSWin[NSWindow]
+        Metal[CAMetalLayer]
+        DL[CVDisplayLink]
+        GCD[GCD Dispatcher]
+    end
+
+    App --> Window
+    App --> Scene
+    Window --> Renderer
+    Scene --> Renderer
+    Renderer --> Text
+    Text --> Atlas
+    TextSys --> Cache
+    Cache --> Atlas
+    Window --> NSWin
+    Window --> Metal
+    Window --> DL
+    Renderer --> Metal
+```
