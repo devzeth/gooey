@@ -30,6 +30,10 @@ pub const LayoutId = struct {
         };
     }
 
+    pub fn fromInt(value: u32) LayoutId {
+        return .{ .id = value, .base_id = value, .offset = 0, .string_id = null };
+    }
+
     /// Create ID from runtime string
     pub fn fromString(str: []const u8) Self {
         const hash = hashString(str, 0);

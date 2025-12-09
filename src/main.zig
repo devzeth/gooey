@@ -1,48 +1,33 @@
+//! Gooey Demo - Login Form with Component System
+
 const std = @import("std");
 const gooey = @import("gooey");
+const ui = gooey.ui;
 
-// Layout imports
+// Layout types
 const layout = gooey.layout;
 const LayoutEngine = layout.LayoutEngine;
 const LayoutId = layout.LayoutId;
-const Sizing = layout.Sizing;
-const SizingAxis = layout.SizingAxis;
-const Padding = layout.Padding;
-const Color = layout.Color;
-const CornerRadius = layout.CornerRadius;
-const ChildAlignment = layout.ChildAlignment;
-const RenderCommandType = layout.RenderCommandType;
 
-// Core gooey types
+// Core types
 const Scene = gooey.Scene;
 const Hsla = gooey.Hsla;
 const Quad = gooey.Quad;
 const Shadow = gooey.Shadow;
 const TextInput = gooey.TextInput;
-const ViewTree = gooey.ViewTree;
-
-// Reactive types
-const ViewContext = gooey.ViewContext;
-const RenderOutput = gooey.RenderOutput;
-const Context = gooey.Context;
-const Entity = gooey.Entity;
+const InputEvent = gooey.InputEvent;
+const Window = gooey.Window;
+const Gooey = gooey.Gooey;
 
 // =============================================================================
-// Application State (Reactive Entity)
+// Application State
 // =============================================================================
 
 const AppState = struct {
-    // Form state
-    username: []const u8,
-    password: []const u8,
-
-    // UI state
-    login_attempts: i32,
-    is_submitting: bool,
-    error_message: ?[]const u8,
-
-    // Focus tracking
-    focused_field: FocusedField,
+    login_attempts: u32 = 0,
+    is_submitting: bool = false,
+    error_message: ?[]const u8 = null,
+    focused_field: FocusedField = .username,
 
     const FocusedField = enum {
         none,
@@ -50,110 +35,212 @@ const AppState = struct {
         password,
     };
 
-    // This makes AppState "Renderable" - it can be a window's root view
-    pub fn render(self: *AppState, cx: *ViewContext(AppState)) RenderOutput {
-        _ = cx;
-        std.debug.print("Rendering AppState: attempts={}, submitting={}\n", .{ self.login_attempts, self.is_submitting });
-        return RenderOutput.withContent();
-    }
-
-    // Actions that modify state
-    pub fn setUsername(self: *AppState, cx: *ViewContext(AppState), value: []const u8) void {
-        self.username = value;
-        cx.notify();
-    }
-
-    pub fn setPassword(self: *AppState, cx: *ViewContext(AppState), value: []const u8) void {
-        self.password = value;
-        cx.notify();
-    }
-
-    pub fn submit(self: *AppState, cx: *ViewContext(AppState)) void {
-        self.login_attempts += 1;
-        self.is_submitting = true;
-
-        // Simulate validation
-        if (self.username.len == 0) {
-            self.error_message = "Username is required";
-            self.is_submitting = false;
-        } else if (self.password.len == 0) {
-            self.error_message = "Password is required";
-            self.is_submitting = false;
-        } else {
-            self.error_message = null;
-            std.debug.print("Login attempt #{}: user={s}\n", .{ self.login_attempts, self.username });
-        }
-
-        cx.notify();
-    }
-
-    pub fn focusNext(self: *AppState, cx: *ViewContext(AppState)) void {
+    pub fn focusNext(self: *AppState) void {
         self.focused_field = switch (self.focused_field) {
             .none, .password => .username,
             .username => .password,
         };
-        cx.notify();
     }
 
-    pub fn cancel(self: *AppState, cx: *ViewContext(AppState)) void {
-        self.username = "";
-        self.password = "";
+    pub fn submit(self: *AppState, username: []const u8, password: []const u8) void {
+        self.login_attempts += 1;
+        self.is_submitting = true;
+
+        if (username.len == 0) {
+            self.error_message = "Username is required";
+            self.is_submitting = false;
+        } else if (password.len == 0) {
+            self.error_message = "Password is required";
+            self.is_submitting = false;
+        } else {
+            self.error_message = null;
+            std.debug.print("Login attempt #{}: user={s}\n", .{ self.login_attempts, username });
+            self.is_submitting = false;
+        }
+    }
+
+    pub fn reset(self: *AppState) void {
         self.error_message = null;
         self.focused_field = .username;
-        cx.notify();
     }
 };
 
 // =============================================================================
-// Rendering Context (holds non-reactive resources)
+// UI Components
 // =============================================================================
 
-const RenderContext = struct {
-    allocator: std.mem.Allocator,
-    text_system: *gooey.TextSystem,
-    layout_engine: *LayoutEngine,
-    scene: *Scene,
-    username_input: *TextInput,
-    password_input: *TextInput,
-    view_tree: *ViewTree,
-    scale_factor: f32,
-    window_width: f32,
-    window_height: f32,
+/// Header text component
+const Header = struct {
+    title: []const u8,
+    subtitle: ?[]const u8 = null,
+
+    pub fn render(self: @This(), b: *ui.Builder) void {
+        b.vstack(.{ .gap = 4 }, .{
+            ui.text(self.title, .{ .size = 24, .color = ui.Color.rgb(0.1, 0.1, 0.1) }),
+        });
+        // Render subtitle conditionally
+        if (self.subtitle) |sub| {
+            b.box(.{}, .{
+                ui.text(sub, .{ .size = 14, .color = ui.Color.rgb(0.5, 0.5, 0.5) }),
+            });
+        }
+    }
 };
 
-// Global render context (needed for callbacks)
-var g_render_ctx: ?*RenderContext = null;
-var g_app: ?*gooey.App = null;
-var g_app_state: ?Entity(AppState) = null;
-var g_building_scene: bool = false; // Guard against re-entrant builds
+/// Error message banner
+const ErrorBanner = struct {
+    message: []const u8,
+
+    pub fn render(self: @This(), b: *ui.Builder) void {
+        b.box(.{
+            .padding = .{ .symmetric = .{ .x = 12, .y = 8 } },
+            .background = ui.Color.rgb(1.0, 0.9, 0.9),
+            .corner_radius = 4,
+        }, .{
+            ui.text(self.message, .{ .color = ui.Color.rgb(0.8, 0.2, 0.2) }),
+        });
+    }
+};
+
+/// A styled button
+const Button = struct {
+    label: []const u8,
+    style: Style = .primary,
+    enabled: bool = true,
+
+    const Style = enum { primary, secondary };
+
+    pub fn render(self: @This(), b: *ui.Builder) void {
+        const bg = switch (self.style) {
+            .primary => if (self.enabled)
+                ui.Color.rgb(0.2, 0.5, 1.0)
+            else
+                ui.Color.rgb(0.5, 0.7, 1.0),
+            .secondary => ui.Color.rgb(0.9, 0.9, 0.9),
+        };
+        const fg = switch (self.style) {
+            .primary => ui.Color.white,
+            .secondary => ui.Color.rgb(0.3, 0.3, 0.3),
+        };
+
+        b.box(.{
+            .padding = .{ .symmetric = .{ .x = 24, .y = 10 } },
+            .background = bg,
+            .corner_radius = 6,
+            .alignment = .{ .main = .center, .cross = .center },
+        }, .{
+            ui.text(self.label, .{ .color = fg }),
+        });
+    }
+};
+
+/// Input field placeholder
+const InputPlaceholder = struct {
+    pub fn render(_: @This(), b: *ui.Builder) void {
+        b.box(.{
+            .grow = true,
+            .height = 36,
+        }, .{});
+    }
+};
+
+/// The complete login form
+const LoginForm = struct {
+    state: *const AppState,
+
+    pub fn render(self: @This(), b: *ui.Builder) void {
+        const s = self.state;
+
+        // Card container
+        b.box(.{
+            .width = 400,
+            .padding = .{ .all = 24 },
+            .gap = 16,
+            .background = ui.Color.white,
+            .corner_radius = 12,
+            .alignment = .{ .main = .start, .cross = .center },
+        }, .{
+            // Header
+            Header{
+                .title = "Login",
+                .subtitle = if (s.login_attempts > 0) "Welcome back!" else null,
+            },
+
+            // Username placeholder
+            InputPlaceholder{},
+
+            // Password placeholder
+            InputPlaceholder{},
+
+            // Button row
+            ButtonRow{ .is_submitting = s.is_submitting },
+        });
+
+        // Error banner (rendered after card, but we'll fix positioning later)
+        // For now this is a limitation - conditionals in tuples need work
+    }
+};
+
+/// Button row component
+const ButtonRow = struct {
+    is_submitting: bool,
+
+    pub fn render(self: @This(), b: *ui.Builder) void {
+        b.hstack(.{ .gap = 12 }, .{
+            Button{ .label = "Cancel", .style = .secondary },
+            Button{
+                .label = if (self.is_submitting) "Signing in..." else "Sign In",
+                .style = .primary,
+                .enabled = !self.is_submitting,
+            },
+        });
+    }
+};
+
+/// Footer hint text
+const Footer = struct {
+    pub fn render(_: @This(), b: *ui.Builder) void {
+        b.box(.{ .padding = .{ .all = 20 } }, .{
+            ui.text("Tab: switch | Enter: submit | Esc: reset", .{
+                .size = 12,
+                .color = ui.Color.rgb(0.5, 0.5, 0.5),
+            }),
+        });
+    }
+};
+
+// =============================================================================
+// Global State
+// =============================================================================
+
+var g_state: AppState = .{};
+var g_ui: *Gooey = undefined;
+var g_builder: ?ui.Builder = null;
+var g_building: bool = false;
 
 // =============================================================================
 // Main
 // =============================================================================
 
 pub fn main() !void {
-    std.debug.print("Starting gooey with reactive state...\n", .{});
+    std.debug.print("Starting Gooey - Component-based Login Form\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Initialize app
-    var app = try gooey.App.init(allocator);
-    defer app.deinit();
-    g_app = &app;
+    // Initialize platform
+    var plat = try gooey.MacPlatform.init();
+    defer plat.deinit();
 
     // Create window
-    var window = try app.createWindow(.{
-        .title = "gooey - Reactive Login Form",
+    var window = try Window.init(allocator, &plat, .{
+        .title = "Gooey - Login Form",
         .width = 800,
         .height = 600,
-        .background_color = gooey.Color.init(0.95, 0.95, 0.95, 1.0),
+        .background_color = gooey.geometry.Color.init(0.95, 0.95, 0.95, 1.0),
     });
     defer window.deinit();
-
-    // Connect window to app for reactive rendering
-    app.connectWindow(window);
 
     // Initialize text system
     var text_system = try gooey.TextSystem.initWithScale(allocator, @floatCast(window.scale_factor));
@@ -165,410 +252,269 @@ pub fn main() !void {
     defer layout_engine.deinit();
     layout_engine.setMeasureTextFn(measureTextCallback, &text_system);
 
-    // Create text inputs
-    var username_input = TextInput.init(allocator, .{ .x = 0, .y = 0, .width = 300, .height = 36 });
-    defer username_input.deinit();
-    username_input.setPlaceholder("Username");
-
-    var password_input = TextInput.init(allocator, .{ .x = 0, .y = 0, .width = 300, .height = 36 });
-    defer password_input.deinit();
-    password_input.setPlaceholder("Password");
-
-    // Build view tree for focus management
-    var view_tree = ViewTree.init(allocator);
-    defer view_tree.deinit();
-    try view_tree.addElement(username_input.asElement());
-    try view_tree.addElement(password_input.asElement());
-    view_tree.focus(username_input.getId());
-
     // Create scene
     var scene = Scene.init(allocator);
     defer scene.deinit();
 
-    // Build render context
-    var render_ctx = RenderContext{
-        .allocator = allocator,
-        .text_system = &text_system,
-        .layout_engine = &layout_engine,
-        .scene = &scene,
-        .username_input = &username_input,
-        .password_input = &password_input,
-        .view_tree = &view_tree,
-        .scale_factor = @floatCast(window.scale_factor),
-        .window_width = 800,
-        .window_height = 600,
-    };
-    g_render_ctx = &render_ctx;
+    // Initialize Gooey context
+    var gooey_ctx = Gooey.init(allocator, window, &layout_engine, &scene, &text_system);
+    defer gooey_ctx.deinit();
+    g_ui = &gooey_ctx;
 
-    // Create reactive app state
-    var app_state = app.new(AppState, struct {
-        fn build(_: *Context(AppState)) AppState {
-            return .{
-                .username = "",
-                .password = "",
-                .login_attempts = 0,
-                .is_submitting = false,
-                .error_message = null,
-                .focused_field = .username,
-            };
-        }
-    }.build);
-    defer app_state.release();
-    g_app_state = app_state;
+    // Initialize UI Builder
+    g_builder = ui.Builder.init(allocator, &layout_engine, &scene);
 
-    // Set as root view for reactive rendering
-    window.setRootView(AppState, app_state);
+    // Setup text inputs
+    const username_input = gooey_ctx.textInput("username");
+    username_input.setPlaceholder("Username");
 
-    // Set up render callback - this converts state to scene
-    window.setRenderCallback(onRender);
+    const password_input = gooey_ctx.textInput("password");
+    password_input.setPlaceholder("Password");
 
-    // Set up input handling
+    // Initial focus
+    gooey_ctx.focusTextInput("username");
+
+    // Set callbacks
     window.setInputCallback(onInput);
-
-    // Initial render
-    try buildScene(&render_ctx, &app);
-
+    window.setRenderCallback(onRender);
     window.setTextAtlas(text_system.getAtlas());
     window.setScene(&scene);
 
-    std.debug.print("Ready! Tab to switch fields, Enter to submit, Escape to cancel\n", .{});
+    std.debug.print("Ready! Tab: switch fields | Enter: submit | Esc: reset\n", .{});
 
-    app.run(null);
+    plat.run();
 }
 
 // =============================================================================
-// Render Callback
+// Input Handler
 // =============================================================================
 
-fn onRender(window: *gooey.Window, output: RenderOutput) void {
-    _ = output;
-    if (g_render_ctx) |ctx| {
-        if (g_app) |app| {
-            buildScene(ctx, app) catch |err| {
-                std.debug.print("Render error: {}\n", .{err});
-            };
-            window.setTextAtlas(ctx.text_system.getAtlas());
-        }
-    }
-}
+fn onInput(window: *Window, event: InputEvent) bool {
+    const gooey_ctx = g_ui;
 
-// =============================================================================
-// Input Handling
-// =============================================================================
+    switch (event) {
+        .key_down => |key| {
+            if (key.key == .tab) {
+                g_state.focusNext();
+                syncFocus(gooey_ctx);
+                window.requestRender();
+                return true;
+            }
 
-fn onInput(window: *gooey.Window, event: gooey.InputEvent) bool {
-    const ctx = g_render_ctx orelse return false;
-    const app = g_app orelse return false;
-    const state_entity = g_app_state orelse return false;
+            if (key.key == .@"return") {
+                const username = gooey_ctx.textInput("username").getText();
+                const password = gooey_ctx.textInput("password").getText();
+                g_state.submit(username, password);
+                window.requestRender();
+                return true;
+            }
 
-    // Handle keyboard shortcuts
-    if (event == .key_down) {
-        const k = event.key_down;
+            if (key.key == .escape) {
+                g_state.reset();
+                gooey_ctx.textInput("username").clear();
+                gooey_ctx.textInput("password").clear();
+                syncFocus(gooey_ctx);
+                window.requestRender();
+                return true;
+            }
 
-        // Tab - switch focus
-        if (k.key == .tab) {
-            app.update(AppState, state_entity, struct {
-                fn update(state: *AppState, cx: *Context(AppState)) void {
-                    state.focused_field = switch (state.focused_field) {
-                        .none, .password => .username,
-                        .username => .password,
-                    };
-                    // Update view tree focus
-                    if (g_render_ctx) |render_ctx| {
-                        switch (state.focused_field) {
-                            .username => render_ctx.view_tree.focus(render_ctx.username_input.getId()),
-                            .password => render_ctx.view_tree.focus(render_ctx.password_input.getId()),
-                            .none => render_ctx.view_tree.blur(),
-                        }
-                    }
-                    _ = cx;
-                }
-            }.update);
-            app.markDirty(state_entity.entityId());
-            rebuildAndRefresh(window, ctx, app);
-            return true;
-        }
-
-        // Enter - submit
-        if (k.key == .@"return") {
-            app.update(AppState, state_entity, struct {
-                fn update(state: *AppState, _: *Context(AppState)) void {
-                    state.login_attempts += 1;
-                    // Get actual text from inputs
-                    if (g_render_ctx) |render_ctx| {
-                        state.username = render_ctx.username_input.getText();
-                        state.password = render_ctx.password_input.getText();
-                    }
-
-                    if (state.username.len == 0) {
-                        state.error_message = "Username required";
-                    } else if (state.password.len == 0) {
-                        state.error_message = "Password required";
-                    } else {
-                        state.error_message = null;
-                        std.debug.print("Login #{}: {s}\n", .{ state.login_attempts, state.username });
-                    }
-                }
-            }.update);
-            app.markDirty(state_entity.entityId());
-            rebuildAndRefresh(window, ctx, app);
-            return true;
-        }
-
-        // Escape - cancel
-        if (k.key == .escape) {
-            ctx.username_input.clear();
-            ctx.password_input.clear();
-            app.update(AppState, state_entity, struct {
-                fn update(state: *AppState, _: *Context(AppState)) void {
-                    state.error_message = null;
-                    state.focused_field = .username;
-                }
-            }.update);
-            ctx.view_tree.focus(ctx.username_input.getId());
-            app.markDirty(state_entity.entityId());
-            rebuildAndRefresh(window, ctx, app);
-            return true;
-        }
-    }
-
-    // Forward to view tree (text inputs)
-    const handled = ctx.view_tree.dispatchEvent(event);
-    if (handled) {
-        rebuildAndRefresh(window, ctx, app);
-    }
-    return handled;
-}
-
-fn rebuildAndRefresh(window: *gooey.Window, ctx: *RenderContext, app: *gooey.App) void {
-    buildScene(ctx, app) catch {};
-    window.setTextAtlas(ctx.text_system.getAtlas());
-}
-
-// =============================================================================
-// Scene Building
-// =============================================================================
-
-fn buildScene(ctx: *RenderContext, app: *gooey.App) !void {
-    // Prevent re-entrant builds (can happen when input and render callbacks overlap)
-    if (g_building_scene) return;
-    g_building_scene = true;
-    defer g_building_scene = false;
-
-    ctx.scene.clear();
-
-    // Read current state
-    const state_entity = g_app_state orelse return;
-    const state = app.read(AppState, state_entity) orelse return;
-
-    ctx.layout_engine.beginFrame(ctx.window_width, ctx.window_height);
-
-    // Root container
-    try ctx.layout_engine.openElement(.{
-        .id = LayoutId.init("root"),
-        .layout = .{
-            .sizing = Sizing.fill(),
-            .layout_direction = .top_to_bottom,
-            .child_alignment = ChildAlignment.center(),
-            .padding = Padding.all(20),
+            return dispatchToTextInput(gooey_ctx, event);
         },
-    });
-    {
-        // Header with attempt count
-        try ctx.layout_engine.openElement(.{
-            .id = LayoutId.init("header"),
-            .layout = .{ .sizing = .{ .width = SizingAxis.fit(), .height = SizingAxis.fixed(40) } },
-        });
-        var header_buf: [64]u8 = undefined;
-        const header_text = if (state.login_attempts > 0)
-            std.fmt.bufPrint(&header_buf, "Welcome! (Attempts: {})", .{state.login_attempts}) catch "Welcome!"
-        else
-            "Welcome to gooey!";
-        try ctx.layout_engine.text(header_text, .{
-            .color = Color.rgb(0.2, 0.2, 0.2),
-            .font_size = 24,
-        });
-        ctx.layout_engine.closeElement();
+        .text_input => return dispatchToTextInput(gooey_ctx, event),
+        .mouse_down => return false,
+        else => return false,
+    }
+}
 
-        // Error message (if any)
-        if (state.error_message) |err_msg| {
-            try ctx.layout_engine.openElement(.{
-                .id = LayoutId.init("error"),
-                .layout = .{ .sizing = Sizing.fitContent(), .padding = Padding.symmetric(0, 8) },
-                .background_color = Color.rgb(1.0, 0.9, 0.9),
-                .corner_radius = CornerRadius.all(4),
-            });
-            try ctx.layout_engine.text(err_msg, .{ .color = Color.rgb(0.8, 0.2, 0.2) });
-            ctx.layout_engine.closeElement();
-        }
+fn syncFocus(gooey_ctx: *Gooey) void {
+    switch (g_state.focused_field) {
+        .username => gooey_ctx.focusTextInput("username"),
+        .password => gooey_ctx.focusTextInput("password"),
+        .none => gooey_ctx.widgets.blurAll(),
+    }
+}
 
-        // Card
-        try ctx.layout_engine.openElement(.{
-            .id = LayoutId.init("card"),
-            .layout = .{
-                .sizing = .{ .width = SizingAxis.fixed(400), .height = SizingAxis.fit() },
-                .layout_direction = .top_to_bottom,
-                .padding = Padding.all(24),
-                .child_gap = 16,
-                .child_alignment = .{ .x = .center, .y = .top },
+fn dispatchToTextInput(gooey_ctx: *Gooey, event: InputEvent) bool {
+    if (gooey_ctx.getFocusedTextInput()) |input| {
+        switch (event) {
+            .key_down => |k| {
+                input.handleKey(k) catch {};
+                return true;
             },
-            .background_color = Color.white,
-            .corner_radius = CornerRadius.all(12),
-        });
-        {
-            // Title
-            try ctx.layout_engine.openElement(.{
-                .id = LayoutId.init("title"),
-                .layout = .{ .sizing = Sizing.fitContent() },
-            });
-            try ctx.layout_engine.text("Login", .{ .color = Color.rgb(0.1, 0.1, 0.1), .font_size = 20 });
-            ctx.layout_engine.closeElement();
+            .text_input => |t| {
+                input.insertText(t.text) catch {};
+                return true;
+            },
+            .composition => |c| {
+                input.setComposition(c.text) catch {};
+                return true;
+            },
+            else => return false,
+        }
+    }
+    return false;
+}
 
-            // Username container
-            try ctx.layout_engine.openElement(.{
-                .id = LayoutId.init("username_container"),
-                .layout = .{ .sizing = .{ .width = SizingAxis.percent(1.0), .height = SizingAxis.fixed(36) } },
-            });
-            ctx.layout_engine.closeElement();
+// =============================================================================
+// Render
+// =============================================================================
 
-            // Password container
-            try ctx.layout_engine.openElement(.{
-                .id = LayoutId.init("password_container"),
-                .layout = .{ .sizing = .{ .width = SizingAxis.percent(1.0), .height = SizingAxis.fixed(36) } },
-            });
-            ctx.layout_engine.closeElement();
+fn onRender(window: *Window) void {
+    _ = window;
+    if (g_building) return;
+    g_building = true;
+    defer g_building = false;
 
-            // Buttons
-            try ctx.layout_engine.openElement(.{
-                .id = LayoutId.init("button_row"),
-                .layout = .{
-                    .sizing = .{ .width = SizingAxis.percent(1.0), .height = SizingAxis.fixed(44) },
-                    .layout_direction = .left_to_right,
-                    .child_gap = 12,
-                    .child_alignment = ChildAlignment.center(),
+    buildScene(g_ui, &g_state) catch |err| {
+        std.debug.print("Build error: {}\n", .{err});
+    };
+}
+
+fn buildScene(gooey_ctx: *Gooey, state: *const AppState) !void {
+    gooey_ctx.beginFrame();
+
+    const width: f32 = @floatFromInt(gooey_ctx.window.width());
+    const height: f32 = @floatFromInt(gooey_ctx.window.height());
+
+    var b = &g_builder.?;
+    b.id_counter = 0;
+
+    // Root container - centers everything
+    b.boxWithId("root", .{
+        .width = width,
+        .height = height,
+        .alignment = .{ .main = .center, .cross = .center },
+        .direction = .column,
+        .gap = 0,
+    }, .{
+        LoginForm{ .state = state },
+        Footer{},
+    });
+
+    const commands = try gooey_ctx.endFrame();
+
+    gooey_ctx.scene.clear();
+
+    // Draw card shadow
+    for (commands) |cmd| {
+        if (cmd.command_type == .rectangle) {
+            const rect = cmd.data.rectangle;
+            if (rect.corner_radius.top_left >= 12 and cmd.bounding_box.width >= 300) {
+                try gooey_ctx.scene.insertShadow(Shadow.drop(
+                    cmd.bounding_box.x,
+                    cmd.bounding_box.y,
+                    cmd.bounding_box.width,
+                    cmd.bounding_box.height,
+                    15,
+                ).withCornerRadius(12).withColor(Hsla.init(0, 0, 0, 0.12)));
+                break;
+            }
+        }
+    }
+
+    // Render layout commands
+    for (commands) |cmd| {
+        try renderCommand(gooey_ctx, cmd);
+    }
+
+    // Render text inputs (find the placeholder boxes)
+    var input_index: u32 = 0;
+    for (commands) |cmd| {
+        if (cmd.command_type == .rectangle) {
+            // Look for our placeholder boxes (36px height, no background)
+            if (cmd.bounding_box.height == 36 and cmd.data.rectangle.background_color.a == 0) {
+                const input_id = if (input_index == 0) "username" else "password";
+                const input_widget = gooey_ctx.textInput(input_id);
+                input_widget.bounds = .{
+                    .x = cmd.bounding_box.x,
+                    .y = cmd.bounding_box.y,
+                    .width = cmd.bounding_box.width,
+                    .height = cmd.bounding_box.height,
+                };
+                try input_widget.render(gooey_ctx.scene, gooey_ctx.text_system, gooey_ctx.scale_factor);
+                input_index += 1;
+                if (input_index >= 2) break;
+            }
+        }
+    }
+
+    gooey_ctx.scene.finish();
+}
+
+// =============================================================================
+// Render Helpers
+// =============================================================================
+
+fn renderCommand(gooey_ctx: *Gooey, cmd: layout.RenderCommand) !void {
+    switch (cmd.command_type) {
+        .rectangle => {
+            const rect = cmd.data.rectangle;
+            try gooey_ctx.scene.insertQuad(Quad{
+                .bounds_origin_x = cmd.bounding_box.x,
+                .bounds_origin_y = cmd.bounding_box.y,
+                .bounds_size_width = cmd.bounding_box.width,
+                .bounds_size_height = cmd.bounding_box.height,
+                .background = layout.colorToHsla(rect.background_color),
+                .corner_radii = .{
+                    .top_left = rect.corner_radius.top_left,
+                    .top_right = rect.corner_radius.top_right,
+                    .bottom_left = rect.corner_radius.bottom_left,
+                    .bottom_right = rect.corner_radius.bottom_right,
                 },
             });
-            {
-                try ctx.layout_engine.openElement(.{
-                    .id = LayoutId.init("cancel_btn"),
-                    .layout = .{ .sizing = Sizing.fixed(100, 36), .child_alignment = ChildAlignment.center() },
-                    .background_color = Color.rgb(0.9, 0.9, 0.9),
-                    .corner_radius = CornerRadius.all(6),
-                });
-                try ctx.layout_engine.text("Cancel", .{ .color = Color.rgb(0.3, 0.3, 0.3) });
-                ctx.layout_engine.closeElement();
-
-                try ctx.layout_engine.openElement(.{
-                    .id = LayoutId.init("submit_btn"),
-                    .layout = .{ .sizing = .{ .width = SizingAxis.grow(), .height = SizingAxis.fixed(36) }, .child_alignment = ChildAlignment.center() },
-                    .background_color = if (state.is_submitting) Color.rgb(0.5, 0.7, 1.0) else Color.rgb(0.2, 0.5, 1.0),
-                    .corner_radius = CornerRadius.all(6),
-                });
-                try ctx.layout_engine.text(if (state.is_submitting) "Signing in..." else "Sign In", .{ .color = Color.white });
-                ctx.layout_engine.closeElement();
-            }
-            ctx.layout_engine.closeElement();
-        }
-        ctx.layout_engine.closeElement();
-
-        // Footer
-        try ctx.layout_engine.openElement(.{
-            .id = LayoutId.init("footer"),
-            .layout = .{ .sizing = Sizing.fitContent(), .padding = Padding.symmetric(0, 20) },
-        });
-        try ctx.layout_engine.text("Tab: switch | Enter: submit | Esc: cancel", .{
-            .color = Color.rgb(0.5, 0.5, 0.5),
-            .font_size = 12,
-        });
-        ctx.layout_engine.closeElement();
+        },
+        .text => {
+            const text_data = cmd.data.text;
+            const baseline_y = cmd.bounding_box.y + cmd.bounding_box.height * 0.75;
+            try renderText(
+                gooey_ctx.scene,
+                gooey_ctx.text_system,
+                text_data.text,
+                cmd.bounding_box.x,
+                baseline_y,
+                gooey_ctx.scale_factor,
+                layout.colorToHsla(text_data.color),
+            );
+        },
+        else => {},
     }
-    ctx.layout_engine.closeElement();
-
-    const commands = try ctx.layout_engine.endFrame();
-
-    // Draw shadow for card
-    if (ctx.layout_engine.getBoundingBox(LayoutId.init("card").id)) |box| {
-        try ctx.scene.insertShadow(Shadow.drop(box.x, box.y, box.width, box.height, 15)
-            .withCornerRadius(12)
-            .withColor(Hsla.init(0, 0, 0, 0.12)));
-    }
-
-    // Render commands
-    for (commands) |cmd| {
-        switch (cmd.command_type) {
-            .rectangle => {
-                const rect = cmd.data.rectangle;
-                try ctx.scene.insertQuad(Quad{
-                    .bounds_origin_x = cmd.bounding_box.x,
-                    .bounds_origin_y = cmd.bounding_box.y,
-                    .bounds_size_width = cmd.bounding_box.width,
-                    .bounds_size_height = cmd.bounding_box.height,
-                    .background = layout.colorToHsla(rect.background_color),
-                    .corner_radii = .{
-                        .top_left = rect.corner_radius.top_left,
-                        .top_right = rect.corner_radius.top_right,
-                        .bottom_left = rect.corner_radius.bottom_left,
-                        .bottom_right = rect.corner_radius.bottom_right,
-                    },
-                });
-            },
-            .text => {
-                const text_data = cmd.data.text;
-                try renderText(ctx.scene, ctx.text_system, text_data.text, cmd.bounding_box.x, cmd.bounding_box.y + cmd.bounding_box.height * 0.75, ctx.scale_factor, layout.colorToHsla(text_data.color));
-            },
-            else => {},
-        }
-    }
-
-    // Render text inputs at layout positions
-    if (ctx.layout_engine.getBoundingBox(LayoutId.init("username_container").id)) |box| {
-        ctx.username_input.bounds = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
-        try ctx.username_input.render(ctx.scene, ctx.text_system, ctx.scale_factor);
-    }
-    if (ctx.layout_engine.getBoundingBox(LayoutId.init("password_container").id)) |box| {
-        ctx.password_input.bounds = .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height };
-        try ctx.password_input.render(ctx.scene, ctx.text_system, ctx.scale_factor);
-    }
-
-    ctx.scene.finish();
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
-fn measureTextCallback(text: []const u8, _: u16, _: u16, _: ?f32, user_data: ?*anyopaque) layout.engine.TextMeasurement {
-    if (user_data) |ptr| {
-        const ts: *gooey.TextSystem = @ptrCast(@alignCast(ptr));
-        const width = ts.measureText(text) catch 0;
-        const metrics = ts.getMetrics();
-        return .{ .width = width, .height = if (metrics) |m| m.line_height else 20 };
-    }
-    return .{ .width = @as(f32, @floatFromInt(text.len)) * 10, .height = 20 };
-}
-
-fn renderText(scene: *Scene, text_system: *gooey.TextSystem, text: []const u8, x: f32, baseline_y: f32, scale_factor: f32, color: Hsla) !void {
-    var shaped = try text_system.shapeText(text);
+fn renderText(scene: *Scene, text_system: *gooey.TextSystem, text_content: []const u8, x: f32, baseline_y: f32, scale_factor: f32, color: Hsla) !void {
+    var shaped = try text_system.shapeText(text_content);
     defer shaped.deinit(text_system.allocator);
 
     var pen_x = x;
-    for (shaped.glyphs) |glyph| {
-        const cached = try text_system.getGlyph(glyph.glyph_id);
+    for (shaped.glyphs) |glyph_info| {
+        const cached = try text_system.getGlyph(glyph_info.glyph_id);
         if (cached.region.width > 0 and cached.region.height > 0) {
             const atlas = text_system.getAtlas();
-            const uv = cached.region.uv(atlas.size);
+            const uv_coords = cached.region.uv(atlas.size);
             try scene.insertGlyph(gooey.GlyphInstance.init(
-                pen_x + glyph.x_offset + cached.bearing_x,
-                baseline_y + glyph.y_offset - cached.bearing_y,
+                pen_x + glyph_info.x_offset + cached.bearing_x,
+                baseline_y + glyph_info.y_offset - cached.bearing_y,
                 @as(f32, @floatFromInt(cached.region.width)) / scale_factor,
                 cached.height,
-                uv.u0,
-                uv.v0,
-                uv.u1,
-                uv.v1,
+                uv_coords.u0,
+                uv_coords.v0,
+                uv_coords.u1,
+                uv_coords.v1,
                 color,
             ));
         }
-        pen_x += glyph.x_advance;
+        pen_x += glyph_info.x_advance;
     }
+}
+
+fn measureTextCallback(text_content: []const u8, _: u16, _: u16, _: ?f32, user_data: ?*anyopaque) layout.engine.TextMeasurement {
+    if (user_data) |ptr| {
+        const ts: *gooey.TextSystem = @ptrCast(@alignCast(ptr));
+        const text_width = ts.measureText(text_content) catch 0;
+        const metrics = ts.getMetrics();
+        return .{
+            .width = text_width,
+            .height = if (metrics) |m| m.line_height else 20,
+        };
+    }
+    return .{ .width = @as(f32, @floatFromInt(text_content.len)) * 10, .height = 20 };
 }

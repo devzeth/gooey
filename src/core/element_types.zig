@@ -1,162 +1,22 @@
-//! Core types for the element system
+//! Element identity types
 //!
-//! These types are used throughout the element system for layout,
-//! rendering, and event handling.
+//! Provides stable identity for elements across renders:
+//! - ElementId: unique element identity (named, integer, or focus handle)
+//! - GlobalElementId: path-based ID for disambiguation
+//! - LayoutNodeId: index into layout tree
+//! - AvailableSpace: layout constraint
 
 const std = @import("std");
 
-// =============================================================================
-// Pixel Unit Type
-// =============================================================================
-
-pub const Pixels = f32;
-pub const ScaledPixels = f32;
-
-// =============================================================================
-// Geometry Types (generic over unit type)
-// =============================================================================
-
-pub fn PointT(comptime T: type) type {
-    return struct {
-        x: T = 0,
-        y: T = 0,
-
-        const Self = @This();
-
-        pub fn init(x: T, y: T) Self {
-            return .{ .x = x, .y = y };
-        }
-
-        pub fn scale(self: Self, factor: T) Self {
-            return .{ .x = self.x * factor, .y = self.y * factor };
-        }
-
-        pub const zero = Self{};
-    };
-}
-
-pub const Point = PointT(Pixels);
-pub const ScaledPoint = PointT(ScaledPixels);
-
-pub fn SizeT(comptime T: type) type {
-    return struct {
-        width: T = 0,
-        height: T = 0,
-
-        const Self = @This();
-
-        pub fn init(width: T, height: T) Self {
-            return .{ .width = width, .height = height };
-        }
-
-        pub fn scale(self: Self, factor: T) Self {
-            return .{ .width = self.width * factor, .height = self.height * factor };
-        }
-
-        pub fn area(self: Self) T {
-            return self.width * self.height;
-        }
-
-        pub const zero = Self{};
-    };
-}
-
-pub const Size = SizeT(Pixels);
-
-pub fn BoundsT(comptime T: type) type {
-    return struct {
-        origin: PointT(T) = .{},
-        size: SizeT(T) = .{},
-
-        const Self = @This();
-
-        pub fn init(x: T, y: T, width: T, height: T) Self {
-            return .{
-                .origin = .{ .x = x, .y = y },
-                .size = .{ .width = width, .height = height },
-            };
-        }
-
-        pub fn contains(self: Self, point: PointT(T)) bool {
-            return point.x >= self.origin.x and
-                point.x < self.origin.x + self.size.width and
-                point.y >= self.origin.y and
-                point.y < self.origin.y + self.size.height;
-        }
-
-        pub fn inset(self: Self, edges: EdgesT(T)) Self {
-            return .{
-                .origin = .{ .x = self.origin.x + edges.left, .y = self.origin.y + edges.top },
-                .size = .{
-                    .width = @max(0, self.size.width - edges.horizontal()),
-                    .height = @max(0, self.size.height - edges.vertical()),
-                },
-            };
-        }
-
-        pub fn left(self: Self) T {
-            return self.origin.x;
-        }
-        pub fn top(self: Self) T {
-            return self.origin.y;
-        }
-        pub fn right(self: Self) T {
-            return self.origin.x + self.size.width;
-        }
-        pub fn bottom(self: Self) T {
-            return self.origin.y + self.size.height;
-        }
-
-        pub const zero = Self{};
-    };
-}
-
-pub const Bounds = BoundsT(Pixels);
-
-pub fn EdgesT(comptime T: type) type {
-    return struct {
-        top: T = 0,
-        right: T = 0,
-        bottom: T = 0,
-        left: T = 0,
-
-        const Self = @This();
-
-        pub fn all(value: T) Self {
-            return .{ .top = value, .right = value, .bottom = value, .left = value };
-        }
-
-        pub fn horizontal(self: Self) T {
-            return self.left + self.right;
-        }
-        pub fn vertical(self: Self) T {
-            return self.top + self.bottom;
-        }
-
-        pub const zero = Self{};
-    };
-}
-
-pub const Edges = EdgesT(Pixels);
-
-pub fn CornersT(comptime T: type) type {
-    return struct {
-        top_left: T = 0,
-        top_right: T = 0,
-        bottom_right: T = 0,
-        bottom_left: T = 0,
-
-        const Self = @This();
-
-        pub fn all(radius: T) Self {
-            return .{ .top_left = radius, .top_right = radius, .bottom_right = radius, .bottom_left = radius };
-        }
-
-        pub const zero = Self{};
-    };
-}
-
-pub const Corners = CornersT(Pixels);
+// Re-export geometry types for convenience
+pub const geometry = @import("geometry.zig");
+pub const Pixels = geometry.Pixels;
+pub const Point = geometry.Point;
+pub const Size = geometry.Size;
+pub const Rect = geometry.Rect;
+pub const Bounds = geometry.Bounds;
+pub const Edges = geometry.Edges;
+pub const Corners = geometry.Corners;
 
 // =============================================================================
 // Available Space (for layout constraints)

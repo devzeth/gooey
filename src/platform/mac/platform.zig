@@ -2,7 +2,6 @@
 
 const std = @import("std");
 const objc = @import("objc");
-const App = @import("../../core/app.zig").App;
 
 // External Foundation constants - linked at runtime
 extern "c" var NSDefaultRunLoopMode: *anyopaque;
@@ -42,10 +41,10 @@ pub const MacPlatform = struct {
         // NSApplication is a singleton, don't release
     }
 
-    pub fn run(self: *Self, app_ctx: *App, callback: ?*const fn (*App) void) void {
-        _ = callback;
-        _ = app_ctx;
-
+    /// Run the application event loop.
+    /// This blocks until quit() is called or the app terminates.
+    /// Rendering happens on the DisplayLink thread, not here.
+    pub fn run(self: *Self) void {
         // Create autorelease pool
         const NSAutoreleasePoolClass = objc.getClass("NSAutoreleasePool") orelse return;
         const pool = NSAutoreleasePoolClass.msgSend(objc.Object, "alloc", .{});

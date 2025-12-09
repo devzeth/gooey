@@ -10,7 +10,19 @@
 
 const std = @import("std");
 const input = @import("input.zig");
-const ElementId = @import("element.zig").ElementId;
+const element_types = @import("element_types.zig");
+
+pub const ElementId = element_types.ElementId;
+
+/// Result of handling an event
+pub const EventResult = enum {
+    /// Event was not handled, continue propagation
+    ignored,
+    /// Event was handled, but allow propagation to continue
+    handled,
+    /// Event was handled, stop all propagation
+    stop,
+};
 
 /// Phase of event propagation
 pub const EventPhase = enum {
@@ -29,18 +41,18 @@ pub const Event = struct {
     /// Current phase of propagation
     phase: EventPhase,
     /// The element that the event is targeted at (from hit test)
-    target: ElementId,
+    target: ?ElementId,
     /// If true, event won't propagate to further elements
     propagation_stopped: bool = false,
     /// If true, default browser/OS behavior should be prevented
     default_prevented: bool = false,
     /// The element currently processing the event
-    current_target: ElementId = ElementId.none,
+    current_target: ?ElementId = null,
 
     const Self = @This();
 
     /// Create a new event wrapper
-    pub fn init(inner: input.InputEvent, target: ElementId) Self {
+    pub fn init(inner: input.InputEvent, target: ?ElementId) Self {
         return .{
             .inner = inner,
             .phase = .capture,
@@ -100,7 +112,7 @@ test "Event phases" {
         .modifiers = .{},
     } };
 
-    var ev = Event.init(mouse_event, ElementId.generate());
+    var ev = Event.init(mouse_event, ElementId.named("test"));
     try std.testing.expectEqual(EventPhase.capture, ev.phase);
     try std.testing.expect(!ev.propagation_stopped);
 

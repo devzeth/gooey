@@ -24,11 +24,12 @@
 const std = @import("std");
 const gooey = @import("../root.zig");
 
-const element = @import("../core/element.zig");
+const element_types = @import("../core/element_types.zig");
 const event = @import("../core/event.zig");
-const ElementId = element.ElementId;
+const geometry = @import("../core/geometry.zig");
+const ElementId = element_types.ElementId;
 const Event = event.Event;
-const EventResult = element.EventResult;
+const EventResult = event.EventResult;
 
 const Scene = gooey.Scene;
 const Quad = gooey.scene.Quad;
@@ -129,13 +130,34 @@ pub const TextInput = struct {
     const BLINK_INTERVAL_MS: i64 = 530;
 
     pub fn init(allocator: std.mem.Allocator, bounds: Bounds) Self {
+        // Generate a unique integer ID for this instance
+        const unique_id = struct {
+            var next: u64 = 1;
+            fn get() u64 {
+                const id = next;
+                next += 1;
+                return id;
+            }
+        }.get();
         return .{
             .allocator = allocator,
             .bounds = bounds,
             .style = .{},
             .buffer = .{},
             .preedit_buffer = .{},
-            .id = ElementId.generate(),
+            .id = ElementId.int(unique_id),
+        };
+    }
+
+    /// Initialize with a string-based ID (for WidgetStore usage)
+    pub fn initWithId(allocator: std.mem.Allocator, bounds: Bounds, id: []const u8) Self {
+        return .{
+            .allocator = allocator,
+            .bounds = bounds,
+            .style = .{},
+            .buffer = .{},
+            .preedit_buffer = .{},
+            .id = ElementId.named(id),
         };
     }
 
@@ -237,8 +259,8 @@ pub const TextInput = struct {
     }
 
     /// Element interface: get bounds
-    pub fn getBounds(self: *Self) element.Bounds {
-        return element.Bounds.init(
+    pub fn getBounds(self: *Self) element_types.Bounds {
+        return geometry.BoundsF.init(
             self.bounds.x,
             self.bounds.y,
             self.bounds.width,
@@ -247,7 +269,7 @@ pub const TextInput = struct {
     }
 
     /// Element interface: get ID
-    pub fn getId(self: *Self) ElementId {
+    pub fn getId(self: *const Self) ElementId {
         return self.id;
     }
 
@@ -264,11 +286,6 @@ pub const TextInput = struct {
     /// Element interface: called when losing focus
     pub fn onBlur(self: *Self) void {
         self.blur();
-    }
-
-    /// Convert to type-erased Element
-    pub fn asElement(self: *Self) element.Element {
-        return element.asElement(Self, self);
     }
 
     /// Handle text_input event (committed text from IME)
