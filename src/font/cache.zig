@@ -109,6 +109,8 @@ pub const GlyphCache = struct {
     fn renderGlyph(self: *Self, face: *const Face, glyph_id: u16) !CachedGlyph {
         const scale = self.scale_factor;
         const metrics = face.glyphMetrics(glyph_id);
+        const padding: u32 = 2;
+        const padding_f: f32 = @floatFromInt(padding);
 
         // Handle empty glyphs (spaces, etc.)
         if (metrics.width < 1 or metrics.height < 1) {
@@ -123,8 +125,19 @@ pub const GlyphCache = struct {
             };
         }
 
+        // Calculate integer pixel bounds and fractional offsets (like Ghostty)
+        const x = metrics.bearing_x * scale;
+        const y = metrics.bearing_y * scale;
+
+        // Integer pixel offsets (as f32 for easier math later)
+        const int_x = @floor(x);
+        const int_y = @floor(y);
+
+        // Fractional offsets to apply during rasterization
+        const frac_x = x - int_x;
+        const frac_y = y - int_y;
+
         // Bitmap size in physical pixels (scaled)
-        const padding: u32 = 2;
         const width: u32 = @as(u32, @intFromFloat(@ceil(metrics.width * scale))) + padding * 2;
         const height: u32 = @as(u32, @intFromFloat(@ceil(metrics.height * scale))) + padding * 2;
 
@@ -153,6 +166,14 @@ pub const GlyphCache = struct {
         ct.CGContextSetAllowsFontSmoothing(context, true);
         ct.CGContextSetShouldSmoothFonts(context, true);
         ct.CGContextSetGrayFillColor(context, 1.0, 1.0);
+        ct.CGContextSetAllowsFontSubpixelPositioning(context, true);
+        ct.CGContextSetShouldSubpixelPositionFonts(context, true);
+        ct.CGContextSetAllowsFontSubpixelQuantization(context, false);
+        ct.CGContextSetShouldSubpixelQuantizeFonts(context, false);
+
+        // Translate by fractional amount before drawing
+        // (This bakes the fractional position into the bitmap)
+        ct.CGContextTranslateCTM(context, frac_x, frac_y);
 
         // Identity text matrix
         ct.CGContextSetTextMatrix(context, ct.CGAffineTransform.identity);
@@ -185,12 +206,12 @@ pub const GlyphCache = struct {
 
         self.grayscale_atlas.set(region, self.render_buffer[0 .. clamped_w * clamped_h]);
 
-        // Store region in PHYSICAL pixels (scaled)
+        // Store bearings in LOGICAL pixels, pixel-aligned, with padding adjustment
         return CachedGlyph{
             .region = region,
-            .bearing_x = metrics.bearing_x - @as(f32, @floatFromInt(padding)) / scale,
-            .bearing_y = metrics.bearing_y + @as(f32, @floatFromInt(padding)) / scale,
-            .height = metrics.height + 2.0 * @as(f32, @floatFromInt(padding)) / scale,
+            .bearing_x = int_x / scale - padding_f / scale,
+            .bearing_y = int_y / scale + padding_f / scale,
+            .height = metrics.height + 2.0 * padding_f / scale,
             .advance_x = metrics.advance_x,
             .is_color = false,
             .scale = scale,

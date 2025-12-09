@@ -80,11 +80,12 @@ pub const Face = struct {
     /// Create with a known font (e.g., system default monospace)
     pub fn initSystem(style: SystemFont, size: f32) !Self {
         const name = switch (style) {
-            .monospace => "Menlo",
-            .sans_serif => "Helvetica Neue",
-            .serif => "Times New Roman",
+            .monospace => "SF Mono", // Changed from "Menlo"
+            .sans_serif => "SF Pro", // Changed from "Helvetica Neue"
+            .serif => "New York", // Apple's modern serif
             .system => ".AppleSystemUIFont",
         };
+
         return init(name, size);
     }
 

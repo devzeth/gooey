@@ -161,6 +161,8 @@ pub extern "c" var kCFTypeDictionaryValueCallBacks: anyopaque;
 pub extern "c" fn CGColorSpaceCreateDeviceGray() ?CGColorSpaceRef;
 pub extern "c" fn CGColorSpaceCreateDeviceRGB() ?CGColorSpaceRef;
 pub extern "c" fn CGColorSpaceRelease(space: CGColorSpaceRef) void;
+pub extern "c" fn CGContextTranslateCTM(c: CGContextRef, tx: CGFloat, ty: CGFloat) void;
+pub extern "c" fn CGContextScaleCTM(c: CGContextRef, sx: CGFloat, sy: CGFloat) void;
 
 pub extern "c" fn CGBitmapContextCreate(
     data: ?*anyopaque,

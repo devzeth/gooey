@@ -290,8 +290,7 @@ pub const Window = struct {
     // =========================================================================
     // Input Handling
     // =========================================================================
-
-    pub fn handleInput(self: *Self, event: input.InputEvent) void {
+    pub fn handleInput(self: *Self, event: input.InputEvent) bool {
         // Track mouse position
         switch (event) {
             .mouse_down, .mouse_up, .mouse_moved, .mouse_dragged => |m| {
@@ -308,10 +307,12 @@ pub const Window = struct {
             else => {},
         }
 
+        var handled = false;
         if (self.on_input) |callback| {
-            _ = callback(self, event);
+            handled = callback(self, event);
         }
         self.requestRender();
+        return handled;
     }
 
     /// Get current mouse position

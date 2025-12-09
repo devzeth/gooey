@@ -186,42 +186,42 @@ fn isFlipped(_: objc.c.id, _: objc.c.SEL) callconv(.c) bool {
 
 fn mouseDown(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(parseMouseEvent(self, event, .mouse_down));
+    _ = window.handleInput(parseMouseEvent(self, event, .mouse_down));
 }
 
 fn mouseUp(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(parseMouseEvent(self, event, .mouse_up));
+    _ = window.handleInput(parseMouseEvent(self, event, .mouse_up));
 }
 
 fn mouseMoved(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(parseMouseEvent(self, event, .mouse_moved));
+    _ = window.handleInput(parseMouseEvent(self, event, .mouse_moved));
 }
 
 fn mouseDragged(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(parseMouseEvent(self, event, .mouse_dragged));
+    _ = window.handleInput(parseMouseEvent(self, event, .mouse_dragged));
 }
 
 fn mouseEntered(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(.{ .mouse_entered = parseEnterExitEvent(self, event) });
+    _ = window.handleInput(.{ .mouse_entered = parseEnterExitEvent(self, event) });
 }
 
 fn mouseExited(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(.{ .mouse_exited = parseEnterExitEvent(self, event) });
+    _ = window.handleInput(.{ .mouse_exited = parseEnterExitEvent(self, event) });
 }
 
 fn rightMouseDown(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(parseMouseEvent(self, event, .mouse_down));
+    _ = window.handleInput(parseMouseEvent(self, event, .mouse_down));
 }
 
 fn rightMouseUp(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) void {
     const window = getWindow(self) orelse return;
-    window.handleInput(parseMouseEvent(self, event, .mouse_up));
+    _ = window.handleInput(parseMouseEvent(self, event, .mouse_up));
 }
 
 fn scrollWheel(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c) void {
@@ -236,7 +236,7 @@ fn scrollWheel(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c)
     const delta_y = event.msgSend(f64, "scrollingDeltaY", .{});
     const modifier_flags = event.msgSend(c_ulong, "modifierFlags", .{});
 
-    window.handleInput(.{ .scroll = .{
+    _ = window.handleInput(.{ .scroll = .{
         .position = geometry.Point(f64).init(view_loc.x, view_loc.y),
         .delta = geometry.Point(f64).init(delta_x, delta_y),
         .modifiers = parseModifiers(modifier_flags),
@@ -251,14 +251,14 @@ fn keyDown(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c) voi
     const window = getWindow(self) orelse return;
     const view = objc.Object{ .value = self };
 
-    std.debug.print("keyDown called\n", .{});
+    // Always send key_down event first (for shortcuts, navigation, etc.)
+    if (parseKeyEvent(event_id)) |key_event| {
+        const handled = window.handleInput(.{ .key_down = key_event });
 
-    // Check inputContext
-    const input_context = view.msgSend(?objc.c.id, "inputContext", .{});
-    if (input_context != null) {
-        std.debug.print("inputContext: EXISTS\n", .{});
-    } else {
-        std.debug.print("inputContext: NULL\n", .{});
+        // If the app handled the key, don't also send it to IME
+        if (handled) {
+            return;
+        }
     }
 
     // Store the current event for doCommandBySelector fallback
@@ -268,10 +268,7 @@ fn keyDown(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c) voi
     // Route through interpretKeyEvents for IME support
     const NSArray = objc.getClass("NSArray") orelse return;
     const event_array = NSArray.msgSend(objc.Object, "arrayWithObject:", .{event_id});
-
-    std.debug.print("calling interpretKeyEvents\n", .{});
     view.msgSend(void, "interpretKeyEvents:", .{event_array.value});
-    std.debug.print("interpretKeyEvents returned\n", .{});
 }
 
 fn keyUp(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c) void {
@@ -284,7 +281,7 @@ fn keyUp(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c) void 
 
     // Don't try to get characters - they can be invalid for system events
     // Text input comes through insertText: via IME
-    window.handleInput(.{ .key_up = .{
+    _ = window.handleInput(.{ .key_up = .{
         .key = input.KeyCode.from(key_code),
         .modifiers = parseModifiers(modifier_flags),
         .characters = null,
@@ -297,7 +294,7 @@ fn flagsChanged(self: objc.c.id, _: objc.c.SEL, event: objc.c.id) callconv(.c) v
     const window = getWindow(self) orelse return;
     const ns_event = objc.Object{ .value = event };
     const modifier_flags = ns_event.msgSend(c_ulong, "modifierFlags", .{});
-    window.handleInput(.{ .modifiers_changed = parseModifiers(modifier_flags) });
+    _ = window.handleInput(.{ .modifiers_changed = parseModifiers(modifier_flags) });
 }
 
 fn parseKeyEvent(event_id: objc.c.id) ?input.KeyEvent {
@@ -373,7 +370,7 @@ fn setMarkedText(
     std.debug.print("setMarkedText: \"{s}\"\n", .{str});
 
     window.setMarkedText(str);
-    window.handleInput(.{ .composition = .{ .text = window.marked_text } });
+    _ = window.handleInput(.{ .composition = .{ .text = window.marked_text } });
 }
 
 fn unmarkText(self: objc.c.id, _: objc.c.SEL) callconv(.c) void {
@@ -381,7 +378,7 @@ fn unmarkText(self: objc.c.id, _: objc.c.SEL) callconv(.c) void {
     window.clearMarkedText();
 
     // Send empty composition to signal end
-    window.handleInput(.{ .composition = .{
+    _ = window.handleInput(.{ .composition = .{
         .text = "",
     } });
 }
@@ -416,7 +413,7 @@ fn insertText(
     // Copy to window-owned buffer before the objc call returns
     window.setInsertedText(str);
     window.clearMarkedText();
-    window.handleInput(.{ .text_input = .{ .text = window.inserted_text } });
+    _ = window.handleInput(.{ .text_input = .{ .text = window.inserted_text } });
 }
 
 fn characterIndexForPoint(_: objc.c.id, _: objc.c.SEL, _: NSPoint) callconv(.c) c_ulong {
@@ -457,7 +454,7 @@ fn doCommandBySelector(self: objc.c.id, _: objc.c.SEL, selector: objc.c.SEL) cal
 
     if (window.pending_key_event) |event_id| {
         if (parseKeyEvent(event_id)) |key_event| {
-            window.handleInput(.{ .key_down = key_event });
+            _ = window.handleInput(.{ .key_down = key_event });
         }
     }
 }

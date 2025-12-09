@@ -23,12 +23,18 @@ pub const text_shader_source =
     \\    float uv_right;
     \\    float uv_bottom;
     \\    float4 color;  // HSLA
+    \\    float clip_x;
+    \\    float clip_y;
+    \\    float clip_width;
+    \\    float clip_height;
     \\};
     \\
     \\struct VertexOut {
     \\    float4 position [[position]];
     \\    float2 tex_coord;
     \\    float4 color;
+    \\    float4 clip_bounds;  // x, y, width, height
+    \\    float2 screen_pos;   // screen position for clip test
     \\};
     \\
     \\float4 hsla_to_rgba(float4 hsla) {
@@ -78,6 +84,8 @@ pub const text_shader_source =
     \\    out.position = float4(ndc, 0.0, 1.0);
     \\    out.tex_coord = uv;
     \\    out.color = hsla_to_rgba(g.color);
+    \\    out.clip_bounds = float4(g.clip_x, g.clip_y, g.clip_width, g.clip_height);
+    \\    out.screen_pos = pos;
     \\    return out;
     \\}
     \\
@@ -85,6 +93,14 @@ pub const text_shader_source =
     \\    VertexOut in [[stage_in]],
     \\    texture2d<float> atlas [[texture(0)]]
     \\) {
+    \\    // Discard pixels outside clip bounds
+    \\    float2 clip_min = in.clip_bounds.xy;
+    \\    float2 clip_max = clip_min + in.clip_bounds.zw;
+    \\    if (in.screen_pos.x < clip_min.x || in.screen_pos.x > clip_max.x ||
+    \\        in.screen_pos.y < clip_min.y || in.screen_pos.y > clip_max.y) {
+    \\        discard_fragment();
+    \\    }
+    \\
     \\    constexpr sampler s(mag_filter::linear, min_filter::linear);
     \\    float alpha = atlas.sample(s, in.tex_coord).r;
     \\    return float4(in.color.rgb, in.color.a * alpha);

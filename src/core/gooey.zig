@@ -134,7 +134,7 @@ pub const Gooey = struct {
         }
 
         // Load default font
-        try text_system.loadFont("Menlo", 16.0);
+        try text_system.loadFont("SF Mono", 16.0); // Changed from "Menlo"
 
         // Set up text measurement callback
         layout_engine.setMeasureTextFn(measureTextCallback, text_system);
@@ -149,8 +149,8 @@ pub const Gooey = struct {
             .text_system_owned = true,
             .widgets = WidgetStore.init(allocator),
             .window = window,
-            .width = @floatFromInt(window.width),
-            .height = @floatFromInt(window.height),
+            .width = @floatCast(window.size.width),
+            .height = @floatCast(window.size.height),
             .scale_factor = @floatCast(window.scale_factor),
         };
     }

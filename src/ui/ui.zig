@@ -10,19 +10,9 @@
 //! fn build(b: *ui.Builder) void {
 //!     b.vstack(.{ .gap = 16 }, .{
 //!         ui.text("Hello", .{ .size = 24 }),
-//!         MyButton{ .label = "Click me" },
+//!         MyButton{ .label = "Click me", .on_click = doSomething },
 //!     });
 //! }
-//!
-//! const MyButton = struct {
-//!     label: []const u8,
-//!
-//!     pub fn render(self: @This(), b: *ui.Builder) void {
-//!         b.box(.{ .padding = .{ .all = 12 }, .background = ui.Color.blue }, .{
-//!             ui.text(self.label, .{ .color = ui.Color.white }),
-//!         });
-//!     }
-//! };
 //! ```
 
 const std = @import("std");
@@ -41,13 +31,33 @@ const LayoutConfig = layout_mod.LayoutConfig;
 const ElementDeclaration = layout_mod.ElementDeclaration;
 const TextConfig = layout_mod.TextConfig;
 const RenderCommand = layout_mod.RenderCommand;
+const BoundingBox = layout_mod.BoundingBox;
 
 const scene_mod = @import("../core/scene.zig");
 const Scene = scene_mod.Scene;
 const Hsla = scene_mod.Hsla;
 
+const gooey_mod = @import("../core/gooey.zig");
+const Gooey = gooey_mod.Gooey;
+
 // Re-export for convenience
 pub const Color = @import("../layout/types.zig").Color;
+
+// =============================================================================
+// Hit Region for Click Handling
+// =============================================================================
+
+pub const HitRegion = struct {
+    bounds: BoundingBox,
+    on_click: ?*const fn () void,
+    id: u32,
+};
+
+/// Hit region for input focus handling
+pub const InputHitRegion = struct {
+    bounds: BoundingBox,
+    id: []const u8,
+};
 
 // =============================================================================
 // Style Types
@@ -73,6 +83,8 @@ pub const BoxStyle = struct {
     max_width: ?f32 = null,
     max_height: ?f32 = null,
     grow: bool = false,
+    fill_width: bool = false, // 100% of parent width
+    fill_height: bool = false, // 100% of parent height
 
     // Spacing
     padding: PaddingValue = .{ .all = 0 },
@@ -124,6 +136,10 @@ pub const InputStyle = struct {
     placeholder: []const u8 = "",
     secure: bool = false,
     font_size: u16 = 14,
+    width: ?f32 = null,
+    height: f32 = 36,
+    /// Two-way binding to a string slice pointer
+    bind: ?*[]const u8 = null,
 };
 
 /// Stack layout options
@@ -140,11 +156,19 @@ pub const CenterStyle = struct {
     padding: f32 = 0,
 };
 
+/// Button styling options
+pub const ButtonStyle = struct {
+    style: Style = .primary,
+    enabled: bool = true,
+
+    pub const Style = enum { primary, secondary, danger };
+};
+
 // =============================================================================
 // Primitive Descriptors
 // =============================================================================
 
-pub const PrimitiveType = enum { text, input, spacer };
+pub const PrimitiveType = enum { text, input, spacer, button, empty };
 
 /// Text element descriptor
 pub const Text = struct {
@@ -157,7 +181,6 @@ pub const Text = struct {
 /// Input field descriptor
 pub const Input = struct {
     id: []const u8,
-    bind: *[]const u8,
     style: InputStyle,
 
     pub const primitive_type: PrimitiveType = .input;
@@ -170,6 +193,20 @@ pub const Spacer = struct {
     pub const primitive_type: PrimitiveType = .spacer;
 };
 
+/// Button element descriptor
+pub const Button = struct {
+    label: []const u8,
+    style: ButtonStyle = .{},
+    on_click: ?*const fn () void = null,
+
+    pub const primitive_type: PrimitiveType = .button;
+};
+
+/// Empty element (renders nothing) - for conditionals
+pub const Empty = struct {
+    pub const primitive_type: PrimitiveType = .empty;
+};
+
 // =============================================================================
 // Free Functions (return descriptors)
 // =============================================================================
@@ -180,8 +217,8 @@ pub fn text(content: []const u8, style: TextStyle) Text {
 }
 
 /// Create a text input element
-pub fn input(id: []const u8, bind: *[]const u8, style: InputStyle) Input {
-    return .{ .id = id, .bind = bind, .style = style };
+pub fn input(id: []const u8, style: InputStyle) Input {
+    return .{ .id = id, .style = style };
 }
 
 /// Create a flexible spacer
@@ -194,6 +231,31 @@ pub fn spacerMin(min_size: f32) Spacer {
     return .{ .min_size = min_size };
 }
 
+/// Create a button
+pub fn button(label: []const u8, on_click: ?*const fn () void) Button {
+    return .{ .label = label, .on_click = on_click };
+}
+
+/// Create a styled button
+pub fn buttonStyled(label: []const u8, style: ButtonStyle, on_click: ?*const fn () void) Button {
+    return .{ .label = label, .style = style, .on_click = on_click };
+}
+
+/// Create an empty element (for conditionals)
+pub fn empty() Empty {
+    return .{};
+}
+
+/// Buffer for textFmt (thread-local static)
+var fmt_buffer: [1024]u8 = undefined;
+
+/// Create a text element with printf-style formatting
+/// Note: Uses a static buffer, so the result is only valid until the next call
+pub fn textFmt(comptime fmt: []const u8, args: anytype, style: TextStyle) Text {
+    const result = std.fmt.bufPrint(&fmt_buffer, fmt, args) catch "...";
+    return .{ .content = result, .style = style };
+}
+
 // =============================================================================
 // UI Builder
 // =============================================================================
@@ -203,7 +265,31 @@ pub const Builder = struct {
     allocator: std.mem.Allocator,
     layout: *LayoutEngine,
     scene: *Scene,
+    gooey: ?*Gooey = null,
     id_counter: u32 = 0,
+
+    /// Hit regions for click detection (populated after layout)
+    hit_regions: std.ArrayList(HitRegion),
+
+    /// Pending input IDs to be rendered (collected during layout, rendered after)
+    pending_inputs: std.ArrayList(PendingInput),
+
+    /// Pending buttons for click registration (collected during layout, registered after)
+    pending_buttons: std.ArrayList(PendingButton),
+
+    /// Input hit regions for focus handling (populated after layout)
+    input_regions: std.ArrayList(InputHitRegion),
+
+    const PendingInput = struct {
+        id: []const u8,
+        layout_id: LayoutId,
+        style: InputStyle,
+    };
+
+    const PendingButton = struct {
+        layout_id: LayoutId,
+        on_click: *const fn () void,
+    };
 
     const Self = @This();
 
@@ -212,11 +298,64 @@ pub const Builder = struct {
             .allocator = allocator,
             .layout = layout_engine,
             .scene = scene_ptr,
+            .hit_regions = .{},
+            .pending_inputs = .{},
+            .pending_buttons = .{},
+            .input_regions = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.hit_regions.deinit(self.allocator);
+        self.pending_inputs.deinit(self.allocator);
+        self.pending_buttons.deinit(self.allocator);
+        self.input_regions.deinit(self.allocator);
+    }
+
+    // =========================================================================
+    // Click Handling
+    // =========================================================================
+
+    /// Register a clickable region
+    pub fn registerClickRegion(self: *Self, bounds: BoundingBox, on_click: ?*const fn () void) void {
+        self.hit_regions.append(self.allocator, .{
+            .bounds = bounds,
+            .on_click = on_click,
+            .id = self.id_counter,
+        }) catch {};
+    }
+
+    /// Check if a point hits any registered region and call its callback
+    /// Returns true if a click was handled
+    pub fn handleClick(self: *Self, x: f32, y: f32) bool {
+        // First check buttons (iterate in reverse order - last rendered = on top)
+        var i = self.hit_regions.items.len;
+        while (i > 0) {
+            i -= 1;
+            const region = self.hit_regions.items[i];
+            if (x >= region.bounds.x and x <= region.bounds.x + region.bounds.width and
+                y >= region.bounds.y and y <= region.bounds.y + region.bounds.height)
+            {
+                if (region.on_click) |callback| {
+                    callback();
+                    return true;
+                }
+            }
+        }
+
+        // Then check input fields for focus
+        for (self.input_regions.items) |region| {
+            if (x >= region.bounds.x and x <= region.bounds.x + region.bounds.width and
+                y >= region.bounds.y and y <= region.bounds.y + region.bounds.height)
+            {
+                if (self.gooey) |g| {
+                    g.focusTextInput(region.id);
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     // =========================================================================
@@ -236,12 +375,16 @@ pub const Builder = struct {
 
         if (style.width) |w| {
             sizing.width = SizingAxis.fixed(w);
+        } else if (style.fill_width) {
+            sizing.width = SizingAxis.percent(1.0);
         } else if (style.grow) {
             sizing.width = SizingAxis.grow();
         }
 
         if (style.height) |h| {
             sizing.height = SizingAxis.fixed(h);
+        } else if (style.fill_height) {
+            sizing.height = SizingAxis.percent(1.0);
         } else if (style.grow) {
             sizing.height = SizingAxis.grow();
         }
@@ -336,7 +479,7 @@ pub const Builder = struct {
     /// Render any component (struct with `render` method)
     pub fn with(self: *Self, component: anytype) void {
         const T = @TypeOf(component);
-        if (@typeInfo(T) == .Struct and @hasDecl(T, "render")) {
+        if (@typeInfo(T) == .@"struct" and @hasDecl(T, "render")) {
             component.render(self);
         } else {
             @compileError("with() requires a struct with a `render` method");
@@ -395,25 +538,43 @@ pub const Builder = struct {
         const T = @TypeOf(child);
         const type_info = @typeInfo(T);
 
+        // Handle null (from conditionals)
+        if (T == @TypeOf(null)) {
+            return;
+        }
+
+        // Handle optional types
+        if (type_info == .optional) {
+            if (child) |val| {
+                self.processChild(val);
+            }
+            return;
+        }
+
         if (type_info != .@"struct") {
             return;
         }
 
+        // Check for primitives
         if (@hasDecl(T, "primitive_type")) {
             const prim_type: PrimitiveType = T.primitive_type;
             switch (prim_type) {
                 .text => self.renderText(child),
                 .input => self.renderInput(child),
                 .spacer => self.renderSpacer(child),
+                .button => self.renderButton(child),
+                .empty => {}, // Do nothing
             }
             return;
         }
 
+        // Check for components
         if (@hasDecl(T, "render")) {
             child.render(self);
             return;
         }
 
+        // Handle nested tuples
         if (type_info.@"struct".is_tuple) {
             inline for (child) |nested| {
                 self.processChild(nested);
@@ -434,23 +595,49 @@ pub const Builder = struct {
     }
 
     fn renderInput(self: *Self, inp: Input) void {
-        const display_text = if (inp.bind.*.len > 0)
-            inp.bind.*
-        else
-            inp.style.placeholder;
+        const layout_id = LayoutId.fromString(inp.id);
 
-        self.box(.{
-            .padding = .{ .symmetric = .{ .x = 8, .y = 6 } },
-            .background = Color.white,
-            .corner_radius = 4,
-            .border_color = Color.rgb(0.8, 0.8, 0.8),
-            .border_width = 1,
-        }, .{
-            text(display_text, .{
-                .size = inp.style.font_size,
-                .color = if (inp.bind.*.len > 0) Color.black else Color.rgb(0.6, 0.6, 0.6),
-            }),
-        });
+        // Create placeholder in layout
+        const input_width = inp.style.width orelse 200;
+        self.layout.openElement(.{
+            .id = layout_id,
+            .layout = .{
+                .sizing = .{
+                    .width = SizingAxis.fixed(input_width),
+                    .height = SizingAxis.fixed(inp.style.height),
+                },
+            },
+        }) catch return;
+        self.layout.closeElement();
+
+        // Store for later rendering
+        self.pending_inputs.append(self.allocator, .{
+            .id = inp.id,
+            .layout_id = layout_id,
+            .style = inp.style,
+        }) catch {};
+
+        // Set up the actual TextInput widget if we have access to Gooey
+        if (self.gooey) |g| {
+            const text_input = g.textInput(inp.id);
+            if (inp.style.placeholder.len > 0) {
+                text_input.setPlaceholder(inp.style.placeholder);
+            }
+
+            // Two-way binding: sync TextInput content with bound variable
+            if (inp.style.bind) |bind_ptr| {
+                const current_text = text_input.getText();
+                const bound_value = bind_ptr.*;
+
+                // Skip if bound_value points to TextInput's own buffer (aliasing)
+                // or if content is already the same
+                if (bound_value.ptr != current_text.ptr and
+                    !std.mem.eql(u8, current_text, bound_value))
+                {
+                    text_input.setText(bound_value) catch {};
+                }
+            }
+        }
     }
 
     fn renderSpacer(self: *Self, spc: Spacer) void {
@@ -465,6 +652,78 @@ pub const Builder = struct {
             },
         }) catch return;
         self.layout.closeElement();
+    }
+
+    fn renderButton(self: *Self, btn: Button) void {
+        const layout_id = self.generateId();
+
+        const bg = switch (btn.style.style) {
+            .primary => if (btn.style.enabled)
+                Color.rgb(0.2, 0.5, 1.0)
+            else
+                Color.rgb(0.5, 0.7, 1.0),
+            .secondary => Color.rgb(0.9, 0.9, 0.9),
+            .danger => Color.rgb(0.9, 0.3, 0.3),
+        };
+        const fg = switch (btn.style.style) {
+            .primary, .danger => Color.white,
+            .secondary => Color.rgb(0.3, 0.3, 0.3),
+        };
+
+        self.layout.openElement(.{
+            .id = layout_id,
+            .layout = .{
+                .sizing = Sizing.fitContent(),
+                .padding = Padding.symmetric(24, 10),
+                .child_alignment = .{ .x = .center, .y = .center },
+            },
+            .background_color = bg,
+            .corner_radius = CornerRadius.all(6),
+        }) catch return;
+
+        self.layout.text(btn.label, .{
+            .color = fg,
+            .font_size = 14,
+        }) catch {};
+
+        self.layout.closeElement();
+
+        // Store for deferred hit region registration (after layout computes bounds)
+        if (btn.on_click) |callback| {
+            if (btn.style.enabled) {
+                self.pending_buttons.append(self.allocator, .{
+                    .layout_id = layout_id,
+                    .on_click = callback,
+                }) catch {};
+            }
+        }
+    }
+
+    /// Register hit regions for all pending buttons (call after endFrame)
+    pub fn registerPendingHitRegions(self: *Self) void {
+        for (self.pending_buttons.items) |pending| {
+            const bounds = self.layout.getBoundingBox(pending.layout_id.id);
+            if (bounds) |b| {
+                self.hit_regions.append(self.allocator, .{
+                    .bounds = b,
+                    .on_click = pending.on_click,
+                    .id = pending.layout_id.id,
+                }) catch {};
+            }
+        }
+    }
+
+    /// Register input regions for focus handling (call after endFrame)
+    pub fn registerPendingInputRegions(self: *Self) void {
+        for (self.pending_inputs.items) |pending| {
+            const bounds = self.layout.getBoundingBox(pending.layout_id.id);
+            if (bounds) |b| {
+                self.input_regions.append(self.allocator, .{
+                    .bounds = b,
+                    .id = pending.id,
+                }) catch {};
+            }
+        }
     }
 
     // =========================================================================
@@ -493,4 +752,14 @@ test "spacer primitive" {
 
     const s2 = spacerMin(50);
     try std.testing.expectEqual(@as(f32, 50), s2.min_size);
+}
+
+test "button primitive" {
+    const b = button("Click", null);
+    try std.testing.expectEqualStrings("Click", b.label);
+}
+
+test "empty primitive" {
+    const e = empty();
+    try std.testing.expectEqual(PrimitiveType.empty, @TypeOf(e).primitive_type);
 }

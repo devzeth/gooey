@@ -558,7 +558,27 @@ pub const TextInput = struct {
         // Update cursor blink
         self.updateBlink();
 
-        // Background
+        // Build display text: text before cursor + preedit + text after cursor
+        const text = self.buffer.items;
+        const preedit = self.preedit_buffer.items;
+
+        // Safety: ensure cursor is within valid range
+        if (self.cursor_byte > text.len) {
+            self.cursor_byte = text.len;
+        }
+
+        // Calculate text area dimensions early (needed for scroll calculation)
+        const text_x = self.bounds.x + self.style.padding;
+        const text_y = self.bounds.y + self.style.padding;
+        const text_width = self.bounds.width - (self.style.padding * 2);
+        const text_height = self.bounds.height - (self.style.padding * 2);
+
+        // Ensure cursor is visible BEFORE rendering (fixes first-frame overflow)
+        if (self.focused and preedit.len == 0) {
+            self.ensureCursorVisible(text_system, text_width);
+        }
+
+        // Background (rendered OUTSIDE the clip region)
         const border_color = if (self.focused) self.style.border_color_focused else self.style.border_color;
         const bg = Quad.rounded(
             self.bounds.x,
@@ -570,19 +590,19 @@ pub const TextInput = struct {
         ).withBorder(border_color, self.style.border_width);
         try scene.insertQuad(bg);
 
-        // Calculate text area
-        const text_x = self.bounds.x + self.style.padding;
-        const text_y = self.bounds.y + self.style.padding;
-        const text_width = self.bounds.width - (self.style.padding * 2);
-
         // Get font metrics for baseline positioning
         const metrics = text_system.getMetrics() orelse return;
-        const text_height = metrics.ascender + metrics.descender;
-        const baseline_y = self.bounds.y + (self.bounds.height + text_height) / 2 - metrics.descender;
+        const line_height = metrics.ascender + metrics.descender;
+        const baseline_y = self.bounds.y + (self.bounds.height + line_height) / 2 - metrics.descender;
 
-        // Build display text: text before cursor + preedit + text after cursor
-        const text = self.buffer.items;
-        const preedit = self.preedit_buffer.items;
+        // Push clip for text content area - all glyphs will be clipped to this region
+        try scene.pushClip(.{
+            .x = text_x,
+            .y = text_y,
+            .width = text_width,
+            .height = text_height,
+        });
+        defer scene.popClip();
 
         // Determine what to display
         const has_content = text.len > 0 or preedit.len > 0;
@@ -630,9 +650,9 @@ pub const TextInput = struct {
             }
         }
 
-        // Render cursor (moved OUTSIDE the if/else so it always draws when focused)
+        // Render cursor (still inside clip region, which is fine)
         if (self.focused and self.cursor_visible and preedit.len == 0) {
-            // Calculate cursor x position
+            // Calculate cursor x position (scroll already adjusted above)
             var cursor_x = text_x - self.scroll_offset;
             if (self.cursor_byte > 0 and text.len > 0) {
                 cursor_x += try self.measureText(text_system, text[0..self.cursor_byte]);
@@ -654,9 +674,6 @@ pub const TextInput = struct {
             if (self.on_cursor_rect_changed) |callback| {
                 callback(cursor_x, cursor_y, 1.5, cursor_height);
             }
-
-            // Ensure cursor is visible by adjusting scroll
-            self.ensureCursorVisible(cursor_x, text_x, text_width);
         }
     }
 
@@ -687,21 +704,20 @@ pub const TextInput = struct {
                 const atlas = text_system.getAtlas();
                 const uv = cached.region.uv(atlas.size);
 
-                const bearing_x: f32 = cached.bearing_x;
-                const bearing_y: f32 = cached.bearing_y;
-
                 const glyph_w = @as(f32, @floatFromInt(cached.region.width)) / scale_factor;
-                const glyph_h = cached.height;
+                const glyph_h = @as(f32, @floatFromInt(cached.region.height)) / scale_factor;
 
-                const glyph_x = pen_x + glyph.x_offset + bearing_x;
-                const glyph_y = baseline_y + glyph.y_offset - bearing_y;
+                // Pixel-aligned positioning - bearings are in logical pixels
+                const glyph_x = @floor(pen_x + glyph.x_offset) + cached.bearing_x;
+                const glyph_y = @floor(baseline_y + glyph.y_offset) - cached.bearing_y;
+
                 const bottom = glyph_y + glyph_h;
 
                 if (i < 5) {
-                    std.debug.print("  glyph[{}]: bearing_y={d:.1}, glyph_h={d:.1}, glyph_y={d:.1}, bottom={d:.1}\n", .{ i, bearing_y, glyph_h, glyph_y, bottom });
+                    std.debug.print("  glyph[{}]: glyph_h={d:.1}, glyph_y={d:.1}, bottom={d:.1}\n", .{ i, glyph_h, glyph_y, bottom });
                 }
 
-                try scene.insertGlyph(GlyphInstance.init(
+                try scene.insertGlyphClipped(GlyphInstance.init(
                     glyph_x,
                     glyph_y,
                     glyph_w,
@@ -765,19 +781,31 @@ pub const TextInput = struct {
         try scene.insertQuad(selection_quad);
     }
 
-    /// Ensure cursor is visible by adjusting scroll offset
-    fn ensureCursorVisible(self: *Self, cursor_x: f32, text_x: f32, text_width: f32) void {
-        const visible_start = text_x;
-        const visible_end = text_x + text_width;
+    /// Ensure cursor is visible by adjusting scroll offset.
+    /// Call this BEFORE rendering to ensure first frame is correct.
+    fn ensureCursorVisible(self: *Self, text_system: *TextSystem, text_width: f32) void {
+        const text = self.buffer.items;
 
-        if (cursor_x < visible_start) {
-            // Cursor is to the left, scroll left
-            self.scroll_offset -= (visible_start - cursor_x) + 10;
-            self.scroll_offset = @max(0, self.scroll_offset);
-        } else if (cursor_x > visible_end - 5) {
-            // Cursor is to the right, scroll right
-            self.scroll_offset += (cursor_x - visible_end) + 15;
+        // Calculate cursor position in text space (no scroll applied)
+        const cursor_text_x: f32 = if (self.cursor_byte > 0 and text.len > 0)
+            self.measureText(text_system, text[0..self.cursor_byte]) catch 0
+        else
+            0;
+
+        const margin: f32 = 10; // Pixels of breathing room
+
+        // If cursor is left of visible area, scroll left
+        if (cursor_text_x < self.scroll_offset + margin) {
+            self.scroll_offset = @max(0, cursor_text_x - margin);
         }
+
+        // If cursor is right of visible area, scroll right
+        if (cursor_text_x > self.scroll_offset + text_width - margin) {
+            self.scroll_offset = cursor_text_x - text_width + margin;
+        }
+
+        // Clamp scroll to non-negative
+        self.scroll_offset = @max(0, self.scroll_offset);
     }
 };
 

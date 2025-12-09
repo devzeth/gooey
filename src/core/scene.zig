@@ -127,13 +127,36 @@ pub const Edges = extern struct {
     pub const zero = Edges{};
 };
 
-/// Content mask for clipping
-pub const ContentMask = extern struct {
-    bounds: Bounds,
+/// Content mask for clipping (used for clip stack)
+pub const ContentMask = struct {
+    /// The clip bounds in screen coordinates
+    bounds: ClipBounds,
 
-    pub fn infinite() ContentMask {
-        return .{ .bounds = Bounds.init(-1e9, -1e9, 2e9, 2e9) };
-    }
+    pub const ClipBounds = struct {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+
+        /// Intersect two clip bounds, returning the overlapping region
+        pub fn intersect(a: ClipBounds, b: ClipBounds) ClipBounds {
+            const x = @max(a.x, b.x);
+            const y = @max(a.y, b.y);
+            const right = @min(a.x + a.width, b.x + b.width);
+            const bottom = @min(a.y + a.height, b.y + b.height);
+            return .{
+                .x = x,
+                .y = y,
+                .width = @max(0, right - x),
+                .height = @max(0, bottom - y),
+            };
+        }
+    };
+
+    /// Default mask that clips nothing (effectively infinite)
+    pub const none = ContentMask{
+        .bounds = .{ .x = 0, .y = 0, .width = 99999, .height = 99999 },
+    };
 };
 
 /// Quad - the fundamental UI rectangle primitive
@@ -290,6 +313,11 @@ pub const GlyphInstance = extern struct {
     uv_bottom: f32 = 0,
     // Color (HSLA)
     color: Hsla = Hsla.black,
+    // Clip bounds (content mask) - defaults to no clipping
+    clip_x: f32 = 0,
+    clip_y: f32 = 0,
+    clip_width: f32 = 99999,
+    clip_height: f32 = 99999,
 
     pub fn init(
         x: f32,
@@ -314,6 +342,16 @@ pub const GlyphInstance = extern struct {
             .color = color,
         };
     }
+
+    /// Create a glyph with explicit clip bounds
+    pub fn withClipBounds(self: GlyphInstance, clip: ContentMask.ClipBounds) GlyphInstance {
+        var g = self;
+        g.clip_x = clip.x;
+        g.clip_y = clip.y;
+        g.clip_width = clip.width;
+        g.clip_height = clip.height;
+        return g;
+    }
 };
 
 // ============================================================================
@@ -326,6 +364,8 @@ pub const Scene = struct {
     quads: std.ArrayList(Quad),
     glyphs: std.ArrayList(GlyphInstance),
     next_order: DrawOrder,
+    // Clip mask stack for nested clipping regions
+    clip_stack: std.ArrayList(ContentMask.ClipBounds),
 
     const Self = @This();
 
@@ -336,6 +376,7 @@ pub const Scene = struct {
             .quads = .{},
             .glyphs = .{},
             .next_order = 0,
+            .clip_stack = .{},
         };
     }
 
@@ -343,22 +384,56 @@ pub const Scene = struct {
         self.shadows.deinit(self.allocator);
         self.quads.deinit(self.allocator);
         self.glyphs.deinit(self.allocator);
+        self.clip_stack.deinit(self.allocator);
     }
 
     pub fn clear(self: *Self) void {
         self.shadows.clearRetainingCapacity();
         self.quads.clearRetainingCapacity();
         self.glyphs.clearRetainingCapacity();
+        self.clip_stack.clearRetainingCapacity();
         self.next_order = 0;
     }
 
+    // ========================================================================
+    // Clip Stack Management
+    // ========================================================================
+
+    /// Push a clip region onto the stack (intersects with current clip)
+    pub fn pushClip(self: *Self, bounds: ContentMask.ClipBounds) !void {
+        const current = self.currentClip();
+        const intersected = ContentMask.ClipBounds.intersect(current, bounds);
+        try self.clip_stack.append(self.allocator, intersected);
+    }
+
+    /// Pop the current clip region from the stack
+    pub fn popClip(self: *Self) void {
+        if (self.clip_stack.items.len > 0) {
+            _ = self.clip_stack.pop();
+        }
+    }
+
+    /// Get the current clip bounds (or no-clip if stack is empty)
+    pub fn currentClip(self: *const Self) ContentMask.ClipBounds {
+        if (self.clip_stack.items.len > 0) {
+            return self.clip_stack.items[self.clip_stack.items.len - 1];
+        }
+        return ContentMask.none.bounds;
+    }
+
+    // ========================================================================
+    // Glyph Insertion
+    // ========================================================================
+
+    /// Insert a glyph without clipping
     pub fn insertGlyph(self: *Self, glyph: GlyphInstance) !void {
         try self.glyphs.append(self.allocator, glyph);
     }
 
-    /// Insert multiple glyphs at once
-    pub fn insertGlyphs(self: *Self, glyph_instances: []const GlyphInstance) !void {
-        try self.glyphs.appendSlice(self.allocator, glyph_instances);
+    /// Insert a glyph with the current clip mask applied
+    pub fn insertGlyphClipped(self: *Self, glyph: GlyphInstance) !void {
+        const clip = self.currentClip();
+        try self.glyphs.append(self.allocator, glyph.withClipBounds(clip));
     }
 
     pub fn glyphCount(self: *const Self) usize {

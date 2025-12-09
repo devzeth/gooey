@@ -28,11 +28,14 @@ pub fn build(b: *std.Build) void {
     mod.linkFramework("CoreGraphics", .{});
     mod.link_libc = true;
 
-    // Create the executable
+    // =========================================================================
+    // Main Demo (Showcase)
+    // =========================================================================
+
     const exe = b.addExecutable(.{
         .name = "gooey",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("src/examples/showcase.zig"), // Changed!
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -44,8 +47,8 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    // Run step
-    const run_step = b.step("run", "Run the app");
+    // Run step (default demo)
+    const run_step = b.step("run", "Run the login form demo");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -57,7 +60,60 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    // Test step
+    // =========================================================================
+    // Simple Counter Example
+    // =========================================================================
+
+    const simple_exe = b.addExecutable(.{
+        .name = "simple",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/examples/simple.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "gooey", .module = mod },
+                .{ .name = "objc", .module = objc_dep.module("objc") },
+            },
+        }),
+    });
+
+    b.installArtifact(simple_exe);
+
+    // Run simple example
+    const run_simple_step = b.step("run-simple", "Run the simple counter example");
+    const run_simple_cmd = b.addRunArtifact(simple_exe);
+    run_simple_step.dependOn(&run_simple_cmd.step);
+    run_simple_cmd.step.dependOn(b.getInstallStep());
+
+    // =========================================================================
+    // Login Form Example
+    // =========================================================================
+
+    const login_exe = b.addExecutable(.{
+        .name = "login",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/examples/login.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "gooey", .module = mod },
+                .{ .name = "objc", .module = objc_dep.module("objc") },
+            },
+        }),
+    });
+
+    b.installArtifact(login_exe);
+
+    // Run login example
+    const run_login_step = b.step("run-login", "Run the login form example");
+    const run_login_cmd = b.addRunArtifact(login_exe);
+    run_login_step.dependOn(&run_login_cmd.step);
+    run_login_cmd.step.dependOn(b.getInstallStep());
+
+    // =========================================================================
+    // Tests
+    // =========================================================================
+
     const mod_tests = b.addTest(.{
         .root_module = mod,
     });
