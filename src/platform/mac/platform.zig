@@ -1,7 +1,13 @@
 //! macOS Platform implementation using Cocoa/AppKit
+//!
+//! This module provides the macOS-specific platform implementation:
+//! - AppKit event loop
+//! - Metal rendering context
+//! - Cocoa window management
 
 const std = @import("std");
 const objc = @import("objc");
+const interface_mod = @import("../interface.zig");
 
 // External Foundation constants - linked at runtime
 extern "c" var NSDefaultRunLoopMode: *anyopaque;
@@ -19,6 +25,16 @@ pub const MacPlatform = struct {
 
     const Self = @This();
 
+    /// Platform capabilities for macOS
+    pub const capabilities = interface_mod.PlatformCapabilities{
+        .high_dpi = true,
+        .multi_window = true,
+        .gpu_accelerated = true,
+        .display_link = true,
+        .name = "macOS",
+        .graphics_backend = "Metal",
+    };
+
     pub fn init() !Self {
         // Get NSApplication class
         const NSApp = objc.getClass("NSApplication") orelse return error.ClassNotFound;
@@ -27,7 +43,7 @@ pub const MacPlatform = struct {
         const app = NSApp.msgSend(objc.Object, "sharedApplication", .{});
 
         // Set activation policy to regular (foreground app)
-        _ = app.msgSend(bool, "setActivationPolicy:", .{@as(i64, 0)}); // NSApplicationActivationPolicyRegular
+        _ = app.msgSend(bool, "setActivationPolicy:", .{@as(i64, 0)});
 
         return .{
             .app = app,
@@ -60,7 +76,6 @@ pub const MacPlatform = struct {
         _ = self.app.msgSend(void, "finishLaunching", .{});
 
         // Run the event loop - BLOCKING on events
-        // Rendering happens on DisplayLink thread, not here!
         while (self.running) {
             // Create an inner autorelease pool for each iteration
             const inner_pool = NSAutoreleasePoolClass.msgSend(objc.Object, "alloc", .{});
@@ -68,13 +83,12 @@ pub const MacPlatform = struct {
             defer inner_pool_init.msgSend(void, "drain", .{});
 
             // Block waiting for events (CPU efficient!)
-            // DisplayLink handles rendering on its own thread
             const event = self.app.msgSend(
                 ?*anyopaque,
                 "nextEventMatchingMask:untilDate:inMode:dequeue:",
                 .{
                     @as(u64, 0xFFFFFFFFFFFFFFFF), // NSEventMaskAny
-                    getDistantFuture().value, // Block until event arrives
+                    getDistantFuture().value,
                     NSDefaultRunLoopMode,
                     true,
                 },
@@ -90,5 +104,16 @@ pub const MacPlatform = struct {
     pub fn quit(self: *Self) void {
         self.running = false;
         self.app.msgSend(void, "terminate:", .{@as(?*anyopaque, null)});
+    }
+
+    /// Get this platform as a runtime-polymorphic interface.
+    /// Useful for passing to generic code that works with any platform.
+    pub fn interface(self: *Self) interface_mod.PlatformVTable {
+        return interface_mod.makePlatformVTable(Self, self);
+    }
+
+    /// Get platform capabilities
+    pub fn getCapabilities(_: *const Self) interface_mod.PlatformCapabilities {
+        return capabilities;
     }
 };

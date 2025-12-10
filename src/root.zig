@@ -1,119 +1,164 @@
 //! gooey - A minimal GPU-accelerated UI framework for Zig
+//!
 //! Inspired by GPUI, targeting macOS with Metal rendering.
+//!
+//! ## Module Organization
+//!
+//! Gooey is organized into logical namespaces:
+//!
+//! - `core` - Geometry, input, scene primitives, events
+//! - `layout` - Clay-inspired layout engine
+//! - `text` - Text rendering with backend abstraction
+//! - `ui` - Declarative component builder
+//! - `platform` - Platform abstraction (macOS/Metal currently)
+//! - `elements` - Reusable widgets (TextInput, etc.)
+//!
+//! ## Quick Start
+//!
+//! For simple apps, use the convenience exports at the top level:
+//!
+//! ```zig
+//! const gooey = @import("gooey");
+//!
+//! pub fn main() !void {
+//!     try gooey.run(.{
+//!         .title = "My App",
+//!         .render = render,
+//!     });
+//! }
+//!
+//! fn render(ui: *gooey.UI) void {
+//!     ui.vstack(.{ .gap = 16 }, .{
+//!         gooey.ui.text("Hello, gooey!", .{}),
+//!     });
+//! }
+//! ```
+//!
+//! ## Explicit Imports
+//!
+//! For larger apps, use the namespaced modules:
+//!
+//! ```zig
+//! const gooey = @import("gooey");
+//! const Color = gooey.core.Color;
+//! const LayoutEngine = gooey.layout.LayoutEngine;
+//! const TextSystem = gooey.text.TextSystem;
+//! ```
 
 const std = @import("std");
 
 // =============================================================================
-// Core Types
+// Module Namespaces (for explicit imports)
 // =============================================================================
 
-// Geometry
-pub const geometry = @import("core/geometry.zig");
-pub const Size = geometry.Size;
-pub const Point = geometry.Point;
-pub const Rect = geometry.Rect;
-pub const Color = geometry.Color;
-pub const Bounds = geometry.Bounds;
-pub const BoundsF = geometry.BoundsF;
-pub const Edges = geometry.Edges;
-pub const Corners = geometry.Corners;
-pub const Pixels = geometry.Pixels;
+/// Core primitives: geometry, input, scene, events
+pub const core = @import("core/mod.zig");
 
-// Input events
-pub const input = @import("core/input.zig");
-pub const InputEvent = input.InputEvent;
-pub const MouseEvent = input.MouseEvent;
-pub const MouseButton = input.MouseButton;
-pub const KeyEvent = input.KeyEvent;
-pub const KeyCode = input.KeyCode;
-pub const Modifiers = input.Modifiers;
-
-// Scene and primitives
-pub const scene = @import("core/scene.zig");
-pub const Scene = scene.Scene;
-pub const Quad = scene.Quad;
-pub const Shadow = scene.Shadow;
-pub const Hsla = scene.Hsla;
-pub const GlyphInstance = scene.GlyphInstance;
-
-// Element types
-pub const element_id = @import("core/element_types.zig");
-pub const ElementId = element_id.ElementId;
-
-// Event system
-pub const event = @import("core/event.zig");
-pub const Event = event.Event;
-pub const EventPhase = event.EventPhase;
-pub const EventResult = event.EventResult;
-
-// =============================================================================
-// Gooey Context & Widgets
-// =============================================================================
-
-// Gooey unified context
-pub const gooey_ctx = @import("core/gooey.zig");
-pub const Gooey = gooey_ctx.Gooey;
-
-// Widget store (retained widget management)
-pub const widget_store = @import("core/widget_store.zig");
-pub const WidgetStore = widget_store.WidgetStore;
-
-// =============================================================================
-// Font System
-// =============================================================================
-
-pub const font = @import("font/main.zig");
-pub const TextSystem = font.TextSystem;
-pub const Face = font.Face;
-pub const TextStyle = font.TextStyle;
-
-// =============================================================================
-// Layout System
-// =============================================================================
-
+/// Layout engine (Clay-inspired)
 pub const layout = @import("layout/layout.zig");
-pub const LayoutEngine = layout.LayoutEngine;
-pub const LayoutId = layout.LayoutId;
-pub const Sizing = layout.Sizing;
-pub const SizingAxis = layout.SizingAxis;
-pub const Padding = layout.Padding;
-pub const LayoutConfig = layout.LayoutConfig;
-pub const ElementDeclaration = layout.ElementDeclaration;
-pub const BoundingBox = layout.BoundingBox;
-pub const ChildAlignment = layout.ChildAlignment;
-pub const CornerRadius = layout.CornerRadius;
 
-// =============================================================================
-// Platform
-// =============================================================================
+/// Text rendering system with backend abstraction
+pub const text = @import("text/mod.zig");
 
-pub const platform = @import("platform/mac/platform.zig");
-pub const MacPlatform = platform.MacPlatform;
-pub const Window = @import("platform/mac/window.zig").Window;
-pub const DisplayLink = @import("platform/mac/display_link.zig").DisplayLink;
-
-// =============================================================================
-// Widgets
-// =============================================================================
-
-pub const elements = @import("elements.zig");
-pub const TextInput = elements.TextInput;
-
-// =============================================================================
-// UI Component System
-// =============================================================================
-
+/// Declarative UI builder
 pub const ui = @import("ui/mod.zig");
-pub const Builder = ui.Builder;
+
+/// Platform abstraction (macOS/Metal)
+pub const platform = @import("platform/mod.zig");
+
+/// Reusable widgets
+pub const elements = @import("elements.zig");
 
 // =============================================================================
-// App - Convenience Entry Point
+// App Entry Point (most common usage)
 // =============================================================================
 
 pub const app = @import("app.zig");
+
+/// Run a gooey application with minimal boilerplate
 pub const run = app.run;
+
+/// UI context passed to render callbacks
 pub const UI = app.UI;
+
+/// Configuration for gooey.run()
 pub const RunConfig = app.RunConfig;
+
+// =============================================================================
+// Convenience Exports (backward compatible, for quick prototyping)
+// =============================================================================
+
+// Geometry (most commonly used)
+pub const Color = core.Color;
+pub const Point = core.Point;
+pub const Size = core.Size;
+pub const Rect = core.Rect;
+pub const Bounds = core.Bounds;
+pub const PointF = core.PointF;
+pub const SizeF = core.SizeF;
+pub const BoundsF = core.BoundsF;
+pub const Edges = core.Edges;
+pub const Corners = core.Corners;
+pub const Pixels = core.Pixels;
+
+// Input events
+pub const InputEvent = core.InputEvent;
+pub const KeyEvent = core.KeyEvent;
+pub const KeyCode = core.KeyCode;
+pub const MouseEvent = core.MouseEvent;
+pub const MouseButton = core.MouseButton;
+pub const Modifiers = core.Modifiers;
+
+// Scene primitives
+pub const Scene = core.Scene;
+pub const Quad = core.Quad;
+pub const Shadow = core.Shadow;
+pub const Hsla = core.Hsla;
+pub const GlyphInstance = core.GlyphInstance;
+
+// Render bridge
+pub const render_bridge = core.render_bridge;
+
+// Event system
+pub const Event = core.Event;
+pub const EventPhase = core.EventPhase;
+pub const EventResult = core.EventResult;
+
+// Element types
+pub const ElementId = core.ElementId;
+
+// Gooey context
+pub const Gooey = core.Gooey;
+pub const WidgetStore = core.WidgetStore;
+
+// Layout (commonly used types)
+pub const LayoutEngine = layout.LayoutEngine;
+pub const LayoutId = layout.LayoutId;
+pub const Sizing = layout.Sizing;
+pub const Padding = layout.Padding;
+pub const LayoutConfig = layout.LayoutConfig;
+pub const BoundingBox = layout.BoundingBox;
+
+// Text system
+pub const TextSystem = text.TextSystem;
+pub const FontFace = text.FontFace;
+pub const TextMeasurement = text.TextMeasurement;
+
+// UI builder
+pub const Builder = ui.Builder;
+
+// Widgets
+pub const TextInput = elements.TextInput;
+
+// Platform (for direct access)
+pub const MacPlatform = platform.Platform;
+pub const Window = platform.Window;
+// Platform interfaces (for runtime polymorphism)
+pub const PlatformVTable = platform.PlatformVTable;
+pub const WindowVTable = platform.WindowVTable;
+pub const PlatformCapabilities = platform.PlatformCapabilities;
+pub const WindowOptions = platform.WindowOptions;
+pub const RendererCapabilities = platform.RendererCapabilities;
 
 // =============================================================================
 // Tests

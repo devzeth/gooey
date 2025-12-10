@@ -1,7 +1,11 @@
 //! Render commands output from the layout system
 //!
-//! The layout engine produces these commands, which are then
-//! translated to gooey's rendering primitives (Quad, Shadow, etc.)
+//! The layout engine produces these commands as a platform-agnostic
+//! representation of what needs to be drawn. These commands are then
+//! translated to GPU primitives by the render_bridge module.
+//!
+//! This module has NO dependencies on scene.zig or any GPU types,
+//! keeping the layout system fully decoupled from rendering.
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -9,7 +13,6 @@ const BoundingBox = types.BoundingBox;
 const Color = types.Color;
 const CornerRadius = types.CornerRadius;
 const BorderWidth = types.BorderWidth;
-const TextConfig = types.TextConfig;
 
 /// Type of render command
 pub const RenderCommandType = enum {
@@ -136,103 +139,3 @@ pub const RenderCommandList = struct {
         }.lessThan);
     }
 };
-
-// ============================================================================
-// Conversion to gooey rendering primitives
-// ============================================================================
-
-const scene = @import("../core/scene.zig");
-
-/// Convert layout Color to scene Hsla
-pub fn colorToHsla(c: Color) scene.Hsla {
-    return scene.Hsla.fromRgba(c.r, c.g, c.b, c.a);
-}
-
-/// Convert layout CornerRadius to scene Corners
-pub fn cornerRadiusToCorners(cr: CornerRadius) scene.Corners {
-    return .{
-        .top_left = cr.top_left,
-        .top_right = cr.top_right,
-        .bottom_left = cr.bottom_left,
-        .bottom_right = cr.bottom_right,
-    };
-}
-
-/// Convert layout BorderWidth to scene Edges
-pub fn borderWidthToEdges(bw: BorderWidth) scene.Edges {
-    return .{
-        .left = bw.left,
-        .right = bw.right,
-        .top = bw.top,
-        .bottom = bw.bottom,
-    };
-}
-
-/// Convert a rectangle render command to a Quad
-pub fn rectangleToQuad(cmd: RenderCommand) scene.Quad {
-    const rect = cmd.data.rectangle;
-    return .{
-        .bounds_origin_x = cmd.bounding_box.x,
-        .bounds_origin_y = cmd.bounding_box.y,
-        .bounds_size_width = cmd.bounding_box.width,
-        .bounds_size_height = cmd.bounding_box.height,
-        .background = colorToHsla(rect.background_color),
-        .corner_radii = cornerRadiusToCorners(rect.corner_radius),
-    };
-}
-
-/// Convert a border render command to a Quad with border
-pub fn borderToQuad(cmd: RenderCommand) scene.Quad {
-    const border = cmd.data.border;
-    return .{
-        .bounds_origin_x = cmd.bounding_box.x,
-        .bounds_origin_y = cmd.bounding_box.y,
-        .bounds_size_width = cmd.bounding_box.width,
-        .bounds_size_height = cmd.bounding_box.height,
-        .background = scene.Hsla.transparent,
-        .border_color = colorToHsla(border.color),
-        .border_widths = borderWidthToEdges(border.width),
-        .corner_radii = cornerRadiusToCorners(border.corner_radius),
-    };
-}
-
-/// Render all commands to a scene
-pub fn renderCommandsToScene(commands: []const RenderCommand, s: *scene.Scene) !void {
-    for (commands) |cmd| {
-        switch (cmd.command_type) {
-            .shadow => {
-                const shadow_data = cmd.data.shadow;
-                try s.insertShadow(scene.Shadow{
-                    .content_origin_x = cmd.bounding_box.x,
-                    .content_origin_y = cmd.bounding_box.y,
-                    .content_size_width = cmd.bounding_box.width,
-                    .content_size_height = cmd.bounding_box.height,
-                    .blur_radius = shadow_data.blur_radius,
-                    .color = colorToHsla(shadow_data.color),
-                    .offset_x = shadow_data.offset_x,
-                    .offset_y = shadow_data.offset_y,
-                    .corner_radii = cornerRadiusToCorners(shadow_data.corner_radius),
-                });
-            },
-            .rectangle => {
-                try s.insertQuad(rectangleToQuad(cmd));
-            },
-            .border => {
-                try s.insertQuad(borderToQuad(cmd));
-            },
-            .text => {
-                // Text rendering requires TextSystem - handled separately
-            },
-            .scissor_start, .scissor_end => {
-                // Scissor handled by renderer directly
-            },
-            .none, .image, .custom => {},
-        }
-    }
-}
-
-test "color conversion" {
-    const c = Color.rgb(1.0, 0.5, 0.0);
-    const hsla = colorToHsla(c);
-    try std.testing.expect(hsla.a == 1.0);
-}

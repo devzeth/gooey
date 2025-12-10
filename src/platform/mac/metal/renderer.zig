@@ -9,7 +9,7 @@ const mtl = @import("api.zig");
 const quad_shader = @import("quad.zig");
 const shadow_shader = @import("shadow.zig");
 const text_pipeline = @import("text.zig");
-const Atlas = @import("../../../font/atlas.zig").Atlas;
+const Atlas = @import("../../../text/mod.zig").Atlas;
 
 /// Vertex data: position (x, y) + color (r, g, b, a)
 pub const Vertex = extern struct {

@@ -1,12 +1,18 @@
 //! Login Form Example
 //!
-//! Demonstrates input binding with:
+//! Demonstrates text input binding with:
 //! - Two-way bound text inputs
 //! - Form validation
+//! - Tab navigation between fields
 //! - Formatted text display
+//!
+//! Shows how gooey handles retained widgets (TextInput)
+//! alongside immediate-mode UI.
 
 const std = @import("std");
 const gooey = @import("gooey");
+
+// UI module for declarative primitives
 const ui = gooey.ui;
 
 // =============================================================================
@@ -14,51 +20,23 @@ const ui = gooey.ui;
 // =============================================================================
 
 var state = struct {
-    // Declarations must come before fields
+    const Self = @This();
     const Field = enum { username, password };
 
-    pub fn focusNext(self: *@This()) void {
-        self.focused = switch (self.focused) {
-            .username => .password,
-            .password => .username,
-        };
-    }
-
-    // Fields come after declarations
     username: []const u8 = "",
     password: []const u8 = "",
     message: []const u8 = "Enter your credentials",
     submitted: bool = false,
     focused: Field = .username,
     initialized: bool = false,
-}{};
 
-// =============================================================================
-// Entry Point
-// =============================================================================
-
-pub fn main() !void {
-    try gooey.run(.{
-        .title = "Login Form",
-        .width = 400,
-        .height = 350,
-        .render = render,
-        .on_event = onEvent,
-    });
-}
-
-fn onEvent(g: *gooey.UI, event: gooey.InputEvent) bool {
-    if (event == .key_down and event.key_down.key == .tab) {
-        state.focusNext();
-        // Sync focus to the actual TextInput widget
-        switch (state.focused) {
-            .username => g.focusTextInput("username"),
-            .password => g.focusTextInput("password"),
-        }
-        return true;
+    pub fn focusNext(self: *Self) void {
+        self.focused = switch (self.focused) {
+            .username => .password,
+            .password => .username,
+        };
     }
-    return false;
-}
+}{};
 
 // =============================================================================
 // Components
@@ -106,8 +84,18 @@ const LoginCard = struct {
 };
 
 // =============================================================================
-// Render
+// Entry Point & Render
 // =============================================================================
+
+pub fn main() !void {
+    try gooey.run(.{
+        .title = "Login Form",
+        .width = 400,
+        .height = 350,
+        .render = render,
+        .on_event = onEvent,
+    });
+}
 
 fn render(g: *gooey.UI) void {
     if (!state.initialized) {
@@ -124,6 +112,18 @@ fn render(g: *gooey.UI) void {
     }, .{
         LoginCard{},
     });
+}
+
+fn onEvent(g: *gooey.UI, event: gooey.InputEvent) bool {
+    if (event == .key_down and event.key_down.key == .tab) {
+        state.focusNext();
+        switch (state.focused) {
+            .username => g.focusTextInput("username"),
+            .password => g.focusTextInput("password"),
+        }
+        return true;
+    }
+    return false;
 }
 
 fn submit() void {

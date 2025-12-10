@@ -1,12 +1,16 @@
 //! Simple Counter Example
 //!
 //! Demonstrates the minimal gooey.run() API with:
-//! - Plain struct state
+//! - Plain struct state (no wrappers!)
 //! - Button click handling
-//! - Components
+//! - Component composition
+//!
+//! This is the simplest way to build a gooey app.
 
 const std = @import("std");
 const gooey = @import("gooey");
+
+// UI module for declarative primitives
 const ui = gooey.ui;
 
 // =============================================================================
@@ -19,11 +23,11 @@ var state = struct {
 }{};
 
 // =============================================================================
-// Components
+// Components - structs with render()
 // =============================================================================
 
+/// Counter display component
 const Counter = struct {
-    // Buffer for formatting the count (static so it persists)
     var count_buf: [32]u8 = undefined;
 
     pub fn render(_: @This(), b: *ui.Builder) void {
@@ -36,6 +40,7 @@ const Counter = struct {
     }
 };
 
+/// Button row component
 const ButtonRow = struct {
     pub fn render(_: @This(), b: *ui.Builder) void {
         b.hstack(.{ .gap = 12 }, .{
@@ -45,6 +50,7 @@ const ButtonRow = struct {
     }
 };
 
+/// Card container component
 const Card = struct {
     pub fn render(_: @This(), b: *ui.Builder) void {
         b.box(.{
@@ -76,10 +82,6 @@ pub fn main() !void {
         .on_event = onEvent,
     });
 }
-
-// =============================================================================
-// Render Function
-// =============================================================================
 
 fn render(g: *gooey.UI) void {
     const size = g.windowSize();
@@ -113,11 +115,8 @@ fn reset() void {
 }
 
 fn onEvent(_: *gooey.UI, event: gooey.InputEvent) bool {
-    if (event == .key_down) {
-        const key = event.key_down.key;
-        if (key == .escape) {
-            return true;
-        }
+    if (event == .key_down and event.key_down.key == .escape) {
+        return true;
     }
     return false;
 }

@@ -22,23 +22,29 @@
 //! ```
 
 const std = @import("std");
-const gooey = @import("../root.zig");
+
+// Direct imports from core modules (not through root.zig to avoid cycles)
+// Use prefixed names to avoid shadowing function parameters
+const scene_mod = @import("../core/scene.zig");
+const input_mod = @import("../core/input.zig");
+const text_mod = @import("../text/mod.zig");
 
 const element_types = @import("../core/element_types.zig");
 const event = @import("../core/event.zig");
 const geometry = @import("../core/geometry.zig");
+
 const ElementId = element_types.ElementId;
 const Event = event.Event;
 const EventResult = event.EventResult;
 
-const Scene = gooey.Scene;
-const Quad = gooey.scene.Quad;
-const Hsla = gooey.scene.Hsla;
-const GlyphInstance = gooey.scene.GlyphInstance;
-const TextSystem = gooey.TextSystem;
-const KeyCode = gooey.input.KeyCode;
-const InputEvent = gooey.InputEvent;
-const Modifiers = gooey.input.Modifiers;
+const Scene = scene_mod.Scene;
+const Quad = scene_mod.Quad;
+const Hsla = scene_mod.Hsla;
+const GlyphInstance = scene_mod.GlyphInstance;
+const TextSystem = text_mod.TextSystem;
+const KeyCode = input_mod.KeyCode;
+const InputEvent = input_mod.InputEvent;
+const Modifiers = input_mod.Modifiers;
 
 /// Rectangle bounds for positioning
 pub const Bounds = struct {
@@ -332,7 +338,7 @@ pub const TextInput = struct {
     }
 
     /// Handle key_down for cursor movement, delete, etc.
-    pub fn handleKey(self: *Self, key: gooey.input.KeyEvent) !void {
+    pub fn handleKey(self: *Self, key: input_mod.KeyEvent) !void {
         const code = key.key;
         const mods = key.modifiers;
 

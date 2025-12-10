@@ -6,7 +6,7 @@ const std = @import("std");
 const objc = @import("objc");
 const mtl = @import("api.zig");
 const scene = @import("../../../core/scene.zig");
-const Atlas = @import("../../../font/atlas.zig").Atlas;
+const Atlas = @import("../../../text/mod.zig").Atlas;
 
 /// Metal shader for text rendering
 pub const text_shader_source =

@@ -1,7 +1,7 @@
 //! Texture atlas with skyline bin packing for glyph storage
 //!
-//! Uses the "skyline bottom-left" algorithm which is simple and efficient
-//! for the typical case of many small, similarly-sized rectangles (glyphs).
+//! Platform-agnostic - uses the "skyline bottom-left" algorithm which is
+//! simple and efficient for many small, similarly-sized rectangles (glyphs).
 
 const std = @import("std");
 

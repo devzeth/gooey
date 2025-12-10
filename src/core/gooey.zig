@@ -37,8 +37,8 @@ const scene_mod = @import("scene.zig");
 const Scene = scene_mod.Scene;
 
 // Text
-const font_mod = @import("../font/main.zig");
-const TextSystem = font_mod.TextSystem;
+const text_mod = @import("../text/mod.zig");
+const TextSystem = text_mod.TextSystem;
 
 // Widgets
 const widget_store_mod = @import("widget_store.zig");

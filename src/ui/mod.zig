@@ -24,6 +24,7 @@ pub const text = ui_impl.text;
 pub const textFmt = ui_impl.textFmt;
 pub const input = ui_impl.input;
 pub const spacer = ui_impl.spacer;
+pub const checkbox = ui_impl.checkbox;
 pub const spacerMin = ui_impl.spacerMin;
 pub const button = ui_impl.button;
 pub const buttonStyled = ui_impl.buttonStyled;

@@ -1,0 +1,122 @@
+//! Core primitives and shared types for gooey
+//!
+//! This module contains the foundational types used throughout gooey:
+//! - Geometry types (Point, Size, Rect, Color)
+//! - Input events (keyboard, mouse)
+//! - Scene primitives (Quad, Shadow, Glyph)
+//! - Event system
+//! - Render bridge (layout -> scene conversion)
+//!
+//! ## Architecture
+//!
+//! The core module is designed to have minimal dependencies and serve as
+//! the foundation for all other gooey modules.
+
+const std = @import("std");
+
+// =============================================================================
+// Geometry (platform-agnostic primitives)
+// =============================================================================
+
+pub const geometry = @import("geometry.zig");
+
+// Generic types
+pub const Point = geometry.Point;
+pub const Size = geometry.Size;
+pub const Rect = geometry.Rect;
+pub const Bounds = geometry.Bounds;
+pub const Edges = geometry.Edges;
+pub const Corners = geometry.Corners;
+pub const Color = geometry.Color;
+
+// Concrete type aliases
+pub const PointF = geometry.PointF;
+pub const PointI = geometry.PointI;
+pub const SizeF = geometry.SizeF;
+pub const SizeI = geometry.SizeI;
+pub const RectF = geometry.RectF;
+pub const RectI = geometry.RectI;
+pub const BoundsF = geometry.BoundsF;
+pub const BoundsI = geometry.BoundsI;
+pub const EdgesF = geometry.EdgesF;
+pub const CornersF = geometry.CornersF;
+
+// GPU-aligned types
+pub const GpuPoint = geometry.GpuPoint;
+pub const GpuSize = geometry.GpuSize;
+pub const GpuBounds = geometry.GpuBounds;
+pub const GpuCorners = geometry.GpuCorners;
+pub const GpuEdges = geometry.GpuEdges;
+
+// Unit aliases
+pub const Pixels = geometry.Pixels;
+
+// =============================================================================
+// Input Events
+// =============================================================================
+
+pub const input = @import("input.zig");
+
+pub const InputEvent = input.InputEvent;
+pub const MouseEvent = input.MouseEvent;
+pub const MouseButton = input.MouseButton;
+pub const KeyEvent = input.KeyEvent;
+pub const KeyCode = input.KeyCode;
+pub const Modifiers = input.Modifiers;
+
+// =============================================================================
+// Scene (GPU primitives)
+// =============================================================================
+
+pub const scene = @import("scene.zig");
+
+pub const Scene = scene.Scene;
+pub const Quad = scene.Quad;
+pub const Shadow = scene.Shadow;
+pub const Hsla = scene.Hsla;
+pub const GlyphInstance = scene.GlyphInstance;
+
+// =============================================================================
+// Render Bridge (layout -> scene conversion)
+// =============================================================================
+
+pub const render_bridge = @import("render_bridge.zig");
+
+pub const colorToHsla = render_bridge.colorToHsla;
+pub const renderCommandsToScene = render_bridge.renderCommandsToScene;
+
+// =============================================================================
+// Event System
+// =============================================================================
+
+pub const event = @import("event.zig");
+
+pub const Event = event.Event;
+pub const EventPhase = event.EventPhase;
+pub const EventResult = event.EventResult;
+
+// =============================================================================
+// Element Types
+// =============================================================================
+
+pub const element_types = @import("element_types.zig");
+
+pub const ElementId = element_types.ElementId;
+
+// =============================================================================
+// Gooey Context & Widget Store
+// =============================================================================
+
+pub const gooey = @import("gooey.zig");
+pub const Gooey = gooey.Gooey;
+
+pub const widget_store = @import("widget_store.zig");
+pub const WidgetStore = widget_store.WidgetStore;
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test {
+    std.testing.refAllDecls(@This());
+}

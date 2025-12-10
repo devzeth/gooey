@@ -7,7 +7,8 @@ const std = @import("std");
 const objc = @import("objc");
 const geometry = @import("../../core/geometry.zig");
 const scene_mod = @import("../../core/scene.zig");
-const Atlas = @import("../../font/atlas.zig").Atlas;
+const text_mod = @import("../../text/mod.zig");
+const Atlas = text_mod.Atlas;
 const platform = @import("platform.zig");
 const metal = @import("metal/metal.zig");
 const input_view = @import("input_view.zig");
@@ -530,6 +531,108 @@ pub const Window = struct {
             .height = self.size.height * self.scale_factor,
         };
         self.metal_layer.msgSend(void, "setDrawableSize:", .{drawable_size});
+    }
+
+    // =========================================================================
+    // Interface Support
+    // =========================================================================
+
+    /// Get this window as a runtime-polymorphic interface.
+    pub fn interface(self: *Self) @import("../interface.zig").WindowVTable {
+        const iface = @import("../interface.zig");
+
+        const vtable = struct {
+            fn deinitFn(p: *anyopaque) void {
+                const win: *Self = @ptrCast(@alignCast(p));
+                win.deinit();
+            }
+
+            fn widthFn(p: *anyopaque) u32 {
+                const win: *const Self = @ptrCast(@alignCast(p));
+                return win.width();
+            }
+
+            fn heightFn(p: *anyopaque) u32 {
+                const win: *const Self = @ptrCast(@alignCast(p));
+                return win.height();
+            }
+
+            fn getSizeFn(p: *anyopaque) geometry.Size(f64) {
+                const win: *const Self = @ptrCast(@alignCast(p));
+                return win.getSize();
+            }
+
+            fn getScaleFactorFn(p: *anyopaque) f64 {
+                const win: *const Self = @ptrCast(@alignCast(p));
+                return win.scale_factor;
+            }
+
+            fn setTitleFn(p: *anyopaque, title: []const u8) void {
+                const win: *Self = @ptrCast(@alignCast(p));
+                win.setTitle(title);
+            }
+
+            fn setBackgroundColorFn(p: *anyopaque, color: geometry.Color) void {
+                const win: *Self = @ptrCast(@alignCast(p));
+                win.setBackgroundColor(color);
+            }
+
+            fn getMousePositionFn(p: *anyopaque) geometry.Point(f64) {
+                const win: *const Self = @ptrCast(@alignCast(p));
+                return win.getMousePosition();
+            }
+
+            fn isMouseInsideFn(p: *anyopaque) bool {
+                const win: *const Self = @ptrCast(@alignCast(p));
+                return win.isMouseInside();
+            }
+
+            fn requestRenderFn(p: *anyopaque) void {
+                const win: *Self = @ptrCast(@alignCast(p));
+                win.requestRender();
+            }
+
+            fn setSceneFn(p: *anyopaque, s: *const scene_mod.Scene) void {
+                const win: *Self = @ptrCast(@alignCast(p));
+                win.setScene(s);
+            }
+
+            fn setTextAtlasFn(p: *anyopaque, atlas: *const Atlas) void {
+                const win: *Self = @ptrCast(@alignCast(p));
+                win.setTextAtlas(atlas);
+            }
+
+            const table = iface.WindowVTable.VTable{
+                .deinit = deinitFn,
+                .width = widthFn,
+                .height = heightFn,
+                .getSize = getSizeFn,
+                .getScaleFactor = getScaleFactorFn,
+                .setTitle = setTitleFn,
+                .setBackgroundColor = setBackgroundColorFn,
+                .getMousePosition = getMousePositionFn,
+                .isMouseInside = isMouseInsideFn,
+                .requestRender = requestRenderFn,
+                .setScene = setSceneFn,
+                .setTextAtlas = setTextAtlasFn,
+            };
+        };
+
+        return .{
+            .ptr = self,
+            .vtable = &vtable.table,
+        };
+    }
+
+    /// Get renderer capabilities
+    pub fn getRendererCapabilities(self: *const Self) @import("../interface.zig").RendererCapabilities {
+        return .{
+            .max_texture_size = 4096, // Could query from Metal device
+            .msaa = true,
+            .msaa_sample_count = self.renderer.sample_count,
+            .unified_memory = self.renderer.unified_memory,
+            .name = "Metal",
+        };
     }
 };
 

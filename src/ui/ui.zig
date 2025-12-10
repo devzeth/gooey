@@ -172,7 +172,26 @@ pub const ButtonStyle = struct {
 // Primitive Descriptors
 // =============================================================================
 
-pub const PrimitiveType = enum { text, input, spacer, button, empty };
+pub const PrimitiveType = enum { text, input, spacer, button, empty, checkbox };
+
+pub const CheckboxStyle = struct {
+    label: []const u8 = "",
+    bind: ?*bool = null,
+    on_change: ?*const fn (bool) void = null,
+
+    // Theme-aware colors (optional - uses defaults if not set)
+    background: ?Color = null, // Unchecked background
+    background_checked: ?Color = null, // Checked background (e.g. theme.primary)
+    border_color: ?Color = null, // Border color (e.g. theme.muted)
+    checkmark_color: ?Color = null, // Inner square color
+    label_color: ?Color = null, // Label text color (e.g. theme.text)
+};
+
+pub const CheckboxPrimitive = struct {
+    id: []const u8,
+    style: CheckboxStyle,
+    pub const primitive_type: PrimitiveType = .checkbox;
+};
 
 /// Text element descriptor
 pub const Text = struct {
@@ -235,6 +254,10 @@ pub fn spacerMin(min_size: f32) Spacer {
     return .{ .min_size = min_size };
 }
 
+pub fn checkbox(id: []const u8, style: CheckboxStyle) CheckboxPrimitive {
+    return .{ .id = id, .style = style };
+}
+
 /// Create a button
 pub fn button(label: []const u8, on_click: ?*const fn () void) Button {
     return .{ .label = label, .on_click = on_click };
@@ -284,6 +307,8 @@ pub const Builder = struct {
     /// Input hit regions for focus handling (populated after layout)
     input_regions: std.ArrayList(InputHitRegion),
 
+    pending_checkboxes: std.ArrayListUnmanaged(PendingCheckbox),
+
     const PendingInput = struct {
         id: []const u8,
         layout_id: LayoutId,
@@ -293,6 +318,12 @@ pub const Builder = struct {
     const PendingButton = struct {
         layout_id: LayoutId,
         on_click: *const fn () void,
+    };
+
+    const PendingCheckbox = struct {
+        id: []const u8,
+        layout_id: LayoutId,
+        style: CheckboxStyle,
     };
 
     const Self = @This();
@@ -305,6 +336,7 @@ pub const Builder = struct {
             .hit_regions = .{},
             .pending_inputs = .{},
             .pending_buttons = .{},
+            .pending_checkboxes = .{},
             .input_regions = .{},
         };
     }
@@ -313,6 +345,7 @@ pub const Builder = struct {
         self.hit_regions.deinit(self.allocator);
         self.pending_inputs.deinit(self.allocator);
         self.pending_buttons.deinit(self.allocator);
+        self.pending_checkboxes.deinit(self.allocator);
         self.input_regions.deinit(self.allocator);
     }
 
@@ -568,6 +601,7 @@ pub const Builder = struct {
                 .input => self.renderInput(child),
                 .spacer => self.renderSpacer(child),
                 .button => self.renderButton(child),
+                .checkbox => self.renderCheckbox(child),
                 .empty => {}, // Do nothing
             }
             return;
@@ -705,6 +739,68 @@ pub const Builder = struct {
         }
     }
 
+    fn renderCheckbox(self: *Self, cb: CheckboxPrimitive) void {
+        const layout_id = LayoutId.fromString(cb.id);
+        const box_size: f32 = 18;
+        const label_gap: f32 = 8;
+
+        // Measure label width approximately
+        const label_width: f32 = if (cb.style.label.len > 0)
+            @as(f32, @floatFromInt(cb.style.label.len)) * 7.5 // ~7.5px per char estimate
+        else
+            0;
+
+        // Create layout element for the checkbox + label
+        self.layout.openElement(.{
+            .id = layout_id,
+            .layout = .{
+                .sizing = .{
+                    .width = SizingAxis.fixed(box_size + label_gap + label_width),
+                    .height = SizingAxis.fixed(box_size),
+                },
+            },
+        }) catch return;
+        self.layout.closeElement();
+
+        // Store for later rendering
+        self.pending_checkboxes.append(self.allocator, .{
+            .id = cb.id,
+            .layout_id = layout_id,
+            .style = cb.style,
+        }) catch {};
+
+        // Set up the Checkbox widget with theme colors
+        if (self.gooey) |g| {
+            if (g.widgets.checkbox(cb.id)) |checkbox_widget| {
+                // Set label
+                if (cb.style.label.len > 0) {
+                    checkbox_widget.setLabel(cb.style.label);
+                }
+
+                // Apply theme colors if provided
+                if (cb.style.background) |c| checkbox_widget.style.background = c;
+                if (cb.style.background_checked) |c| checkbox_widget.style.background_checked = c;
+                if (cb.style.border_color) |c| {
+                    checkbox_widget.style.border_color = c;
+                    checkbox_widget.style.border_color_focused = c;
+                }
+                if (cb.style.checkmark_color) |c| checkbox_widget.style.checkmark_color = c;
+                if (cb.style.label_color) |c| checkbox_widget.style.label_color = c;
+
+                // Two-way binding
+                if (cb.style.bind) |bind_ptr| {
+                    if (checkbox_widget.isChecked() != bind_ptr.*) {
+                        checkbox_widget.setChecked(bind_ptr.*);
+                    }
+                }
+
+                if (cb.style.on_change) |callback| {
+                    checkbox_widget.on_change = callback;
+                }
+            }
+        }
+    }
+
     /// Register hit regions for all pending buttons (call after endFrame)
     pub fn registerPendingHitRegions(self: *Self) void {
         for (self.pending_buttons.items) |pending| {
@@ -730,6 +826,27 @@ pub const Builder = struct {
                 }) catch {};
             }
         }
+    }
+
+    pub fn registerPendingCheckboxRegions(self: *Self) void {
+        for (self.pending_checkboxes.items) |pending| {
+            const bounds = self.layout.getBoundingBox(pending.layout_id.id);
+            if (bounds) |b| {
+                // Register as clickable region
+                self.hit_regions.append(self.allocator, .{
+                    .bounds = b,
+                    .on_click = makeCheckboxToggle(pending.id, self.gooey),
+                    .id = pending.layout_id.id,
+                }) catch {};
+            }
+        }
+    }
+
+    fn makeCheckboxToggle(id: []const u8, gooey: ?*Gooey) ?*const fn () void {
+        // For now, we handle checkbox clicks in handleClick directly
+        _ = id;
+        _ = gooey;
+        return null;
     }
 
     // =========================================================================

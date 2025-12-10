@@ -1,12 +1,52 @@
 //! Scene graph for collecting primitives before rendering
 //! Similar to GPUI's scene.rs - collects all draw commands for a frame
+//!
+//! GPU Type Alignment Notes:
+//! ========================
+//! The primitive types (Point, Size, Bounds, Corners, Edges) are `extern struct`
+//! types designed for direct upload to Metal GPU buffers. They have specific
+//! memory layouts that match Metal shader expectations.
+//!
+//! These types are defined in geometry.zig as Gpu* types and re-exported here
+//! for backward compatibility. For new code, prefer importing from geometry.zig.
+//!
+//! Rendering Primitives:
+//! ====================
+//! - Hsla: Color in HSLA format (GPU-optimized for shaders)
+//! - Quad: Rectangle primitive with background, border, corners
+//! - Shadow: Drop shadow with blur, offset, color
+//! - GlyphInstance: Single glyph for text rendering
+//!
+//! Scene:
+//! =====
+//! Collects all primitives for a frame, handles z-ordering and clipping.
 
 const std = @import("std");
+const geometry = @import("geometry.zig");
 
 pub const DrawOrder = u32;
 
 // ============================================================================
-// Primitive Types (extern structs for GPU compatibility)
+// GPU Geometry Types (re-exported from geometry.zig)
+// ============================================================================
+
+/// 2D point for GPU - extern struct for Metal buffer compatibility
+pub const Point = geometry.GpuPoint;
+
+/// 2D size for GPU - extern struct for Metal buffer compatibility
+pub const Size = geometry.GpuSize;
+
+/// Bounds (origin + size) for GPU - extern struct for Metal buffer compatibility
+pub const Bounds = geometry.GpuBounds;
+
+/// Corner radii for rounded rectangles - extern struct for Metal buffer compatibility
+pub const Corners = geometry.GpuCorners;
+
+/// Edge widths (for borders) - extern struct for Metal buffer compatibility
+pub const Edges = geometry.GpuEdges;
+
+// ============================================================================
+// HSLA Color (GPU-optimized)
 // ============================================================================
 
 /// HSLA color format - matches Metal shader expectations
@@ -46,6 +86,11 @@ pub const Hsla = extern struct {
         return .{ .h = h, .s = s, .l = l, .a = a };
     }
 
+    /// Convert from geometry.Color to Hsla
+    pub fn fromColor(c: geometry.Color) Hsla {
+        return fromRgba(c.r, c.g, c.b, c.a);
+    }
+
     // Common colors
     pub const transparent = Hsla{ .h = 0, .s = 0, .l = 0, .a = 0 };
     pub const white = Hsla{ .h = 0, .s = 0, .l = 1, .a = 1 };
@@ -55,77 +100,9 @@ pub const Hsla = extern struct {
     pub const blue = Hsla{ .h = 0.666, .s = 1, .l = 0.5, .a = 1 };
 };
 
-/// 2D point for GPU
-pub const Point = extern struct {
-    x: f32,
-    y: f32,
-
-    pub fn init(x: f32, y: f32) Point {
-        return .{ .x = x, .y = y };
-    }
-
-    pub const zero = Point{ .x = 0, .y = 0 };
-};
-
-/// 2D size for GPU
-pub const Size = extern struct {
-    width: f32,
-    height: f32,
-
-    pub fn init(width: f32, height: f32) Size {
-        return .{ .width = width, .height = height };
-    }
-
-    pub const zero = Size{ .width = 0, .height = 0 };
-};
-
-/// Bounds (origin + size) for GPU
-pub const Bounds = extern struct {
-    origin: Point,
-    size: Size,
-
-    pub fn init(x: f32, y: f32, width: f32, height: f32) Bounds {
-        return .{
-            .origin = Point.init(x, y),
-            .size = Size.init(width, height),
-        };
-    }
-
-    pub const zero = Bounds{ .origin = Point.zero, .size = Size.zero };
-};
-
-/// Corner radii for rounded rectangles
-pub const Corners = extern struct {
-    top_left: f32 = 0,
-    top_right: f32 = 0,
-    bottom_right: f32 = 0,
-    bottom_left: f32 = 0,
-
-    pub fn all(radius: f32) Corners {
-        return .{
-            .top_left = radius,
-            .top_right = radius,
-            .bottom_right = radius,
-            .bottom_left = radius,
-        };
-    }
-
-    pub const zero = Corners{};
-};
-
-/// Edge widths (for borders)
-pub const Edges = extern struct {
-    top: f32 = 0,
-    right: f32 = 0,
-    bottom: f32 = 0,
-    left: f32 = 0,
-
-    pub fn all(width: f32) Edges {
-        return .{ .top = width, .right = width, .bottom = width, .left = width };
-    }
-
-    pub const zero = Edges{};
-};
+// ============================================================================
+// Content Mask (for clipping)
+// ============================================================================
 
 /// Content mask for clipping (used for clip stack)
 pub const ContentMask = struct {

@@ -33,9 +33,10 @@ const platform_mod = @import("platform/mac/platform.zig");
 const window_mod = @import("platform/mac/window.zig");
 const gooey_mod = @import("core/gooey.zig");
 const scene_mod = @import("core/scene.zig");
+const render_bridge = @import("core/render_bridge.zig");
 const layout_mod = @import("layout/layout.zig");
 const engine_mod = @import("layout/engine.zig");
-const font_mod = @import("font/main.zig");
+const text_mod = @import("text/mod.zig");
 const input_mod = @import("core/input.zig");
 const geometry_mod = @import("core/geometry.zig");
 const ui_mod = @import("ui/ui.zig");
@@ -48,7 +49,7 @@ const Hsla = scene_mod.Hsla;
 const Quad = scene_mod.Quad;
 const Shadow = scene_mod.Shadow;
 const LayoutEngine = layout_mod.LayoutEngine;
-const TextSystem = font_mod.TextSystem;
+const TextSystem = text_mod.TextSystem;
 const InputEvent = input_mod.InputEvent;
 const Builder = ui_mod.Builder;
 
@@ -198,6 +199,27 @@ pub fn run(config: RunConfig) !void {
             // First, let UI handle click events for buttons and inputs
             if (event == .mouse_down) {
                 const pos = event.mouse_down.position;
+                const x: f32 = @floatCast(pos.x);
+                const y: f32 = @floatCast(pos.y);
+
+                // Check checkbox hits first
+                for (g_ui.builder.pending_checkboxes.items) |pending| {
+                    const bounds = g_ui.gooey.layout.getBoundingBox(pending.layout_id.id);
+                    if (bounds) |b| {
+                        if (x >= b.x and x < b.x + b.width and y >= b.y and y < b.y + b.height) {
+                            if (g_ui.gooey.widgets.checkbox(pending.id)) |cb| {
+                                cb.toggle();
+                                // Sync back to bound variable
+                                if (pending.style.bind) |bind_ptr| {
+                                    bind_ptr.* = cb.isChecked();
+                                }
+                                g_ui.requestRender();
+                                return true;
+                            }
+                        }
+                    }
+                }
+
                 if (g_ui.builder.handleClick(@floatCast(pos.x), @floatCast(pos.y))) {
                     g_ui.requestRender();
                     return true;
@@ -275,6 +297,7 @@ fn renderFrame(ui: *UI, render_fn: *const fn (*UI) void) !void {
     ui.builder.pending_inputs.clearRetainingCapacity();
     ui.builder.pending_buttons.clearRetainingCapacity();
     ui.builder.input_regions.clearRetainingCapacity();
+    ui.builder.pending_checkboxes.clearRetainingCapacity();
 
     // Call user's render function
     render_fn(ui);
@@ -285,6 +308,7 @@ fn renderFrame(ui: *UI, render_fn: *const fn (*UI) void) !void {
     // Register hit regions (after layout computed bounds)
     ui.builder.registerPendingHitRegions();
     ui.builder.registerPendingInputRegions();
+    ui.builder.registerPendingCheckboxRegions();
 
     // Clear scene
     ui.gooey.scene.clear();
@@ -318,6 +342,22 @@ fn renderFrame(ui: *UI, render_fn: *const fn (*UI) void) !void {
         }
     }
 
+    // Render checkboxes from pending list
+    for (ui.builder.pending_checkboxes.items) |pending| {
+        const bounds = ui.gooey.layout.getBoundingBox(pending.layout_id.id);
+        if (bounds) |b| {
+            if (ui.gooey.widgets.checkbox(pending.id)) |checkbox_widget| {
+                checkbox_widget.bounds = .{
+                    .x = b.x,
+                    .y = b.y,
+                    .width = b.width,
+                    .height = b.height,
+                };
+                try checkbox_widget.render(ui.gooey.scene, ui.gooey.text_system, ui.gooey.scale_factor);
+            }
+        }
+    }
+
     ui.gooey.scene.finish();
 }
 
@@ -325,20 +365,13 @@ fn renderCommand(gooey_ctx: *Gooey, cmd: layout_mod.RenderCommand) !void {
     switch (cmd.command_type) {
         .shadow => {
             const shadow_data = cmd.data.shadow;
-            std.debug.print("Shadow: pos=({d:.1},{d:.1}) size=({d:.1},{d:.1}) blur={d:.1} color=({d:.2},{d:.2},{d:.2},{d:.2})\n", .{
-                cmd.bounding_box.x,      cmd.bounding_box.y,
-                cmd.bounding_box.width,  cmd.bounding_box.height,
-                shadow_data.blur_radius, shadow_data.color.r,
-                shadow_data.color.g,     shadow_data.color.b,
-                shadow_data.color.a,
-            });
             try gooey_ctx.scene.insertShadow(Shadow{
                 .content_origin_x = cmd.bounding_box.x,
                 .content_origin_y = cmd.bounding_box.y,
                 .content_size_width = cmd.bounding_box.width,
                 .content_size_height = cmd.bounding_box.height,
                 .blur_radius = shadow_data.blur_radius,
-                .color = layout_mod.colorToHsla(shadow_data.color),
+                .color = render_bridge.colorToHsla(shadow_data.color),
                 .offset_x = shadow_data.offset_x,
                 .offset_y = shadow_data.offset_y,
                 .corner_radii = .{
@@ -356,7 +389,7 @@ fn renderCommand(gooey_ctx: *Gooey, cmd: layout_mod.RenderCommand) !void {
                 .bounds_origin_y = cmd.bounding_box.y,
                 .bounds_size_width = cmd.bounding_box.width,
                 .bounds_size_height = cmd.bounding_box.height,
-                .background = layout_mod.colorToHsla(rect.background_color),
+                .background = render_bridge.colorToHsla(rect.background_color),
                 .corner_radii = .{
                     .top_left = rect.corner_radius.top_left,
                     .top_right = rect.corner_radius.top_right,
@@ -375,7 +408,7 @@ fn renderCommand(gooey_ctx: *Gooey, cmd: layout_mod.RenderCommand) !void {
                 cmd.bounding_box.x,
                 baseline_y,
                 gooey_ctx.scale_factor,
-                layout_mod.colorToHsla(text_data.color),
+                render_bridge.colorToHsla(text_data.color),
             );
         },
         else => {},

@@ -65,6 +65,11 @@ var state = struct {
     focused_field: FormField = .name,
     form_initialized: bool = false,
 
+    // Checkbox state
+    agree_terms: bool = false,
+    subscribe_newsletter: bool = false,
+    enable_notifications: bool = true,
+
     // Stats (for home page)
     click_count: u32 = 0,
 
@@ -125,7 +130,7 @@ pub fn main() !void {
     try gooey.run(.{
         .title = "Gooey Showcase",
         .width = 600,
-        .height = 500,
+        .height = 600,
         .render = render,
         .on_event = onEvent,
     });
@@ -294,6 +299,54 @@ const FormsPage = struct {
     }
 };
 
+const CheckboxSection = struct {
+    pub fn render(_: @This(), b: *ui.Builder) void {
+        const t = state.theme;
+
+        b.box(.{
+            .padding = .{ .all = 20 },
+            .gap = 14,
+            .background = t.card,
+            .corner_radius = 8,
+            .direction = .column,
+            .alignment = .{ .cross = .start },
+        }, .{
+            ui.text("Preferences", .{ .size = 14, .color = t.muted }),
+
+            ui.checkbox("agree_terms", .{
+                .label = "I agree to the terms and conditions",
+                .bind = &state.agree_terms,
+                // Theme colors
+                .background = t.card,
+                .background_checked = t.primary,
+                .border_color = t.muted,
+                .checkmark_color = ui.Color.white,
+                .label_color = t.text,
+            }),
+
+            ui.checkbox("subscribe", .{
+                .label = "Subscribe to newsletter",
+                .bind = &state.subscribe_newsletter,
+                .background = t.card,
+                .background_checked = t.primary,
+                .border_color = t.muted,
+                .checkmark_color = ui.Color.white,
+                .label_color = t.text,
+            }),
+
+            ui.checkbox("notifications", .{
+                .label = "Enable notifications",
+                .bind = &state.enable_notifications,
+                .background = t.card,
+                .background_checked = t.accent, // Use accent for variety
+                .border_color = t.muted,
+                .checkmark_color = ui.Color.white,
+                .label_color = t.text,
+            }),
+        });
+    }
+};
+
 const FormCard = struct {
     pub fn render(_: @This(), b: *ui.Builder) void {
         const t = state.theme;
@@ -320,6 +373,7 @@ const FormCard = struct {
                 .width = 280,
                 .bind = &state.message,
             }),
+            CheckboxSection{},
             ui.button("Submit", submitForm),
         });
     }
@@ -363,6 +417,7 @@ const FeatureCard = struct {
             FeatureItem{ .text = "Metal GPU rendering" },
             FeatureItem{ .text = "Immediate-mode layout" },
             FeatureItem{ .text = "Retained text input widgets" },
+            FeatureItem{ .text = "Checkbox components" },
             FeatureItem{ .text = "CoreText font shaping" },
             FeatureItem{ .text = "Simple component model" },
         });
