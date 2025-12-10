@@ -6,6 +6,10 @@ A minimal GPU-accelerated UI framework for Zig, targeting macOS with Metal rende
 
 <img src="https://github.com/duanebester/gooey/blob/main/assets/screenshots/gooey.png" height="400px" />
 
+Now with custom shaders!
+
+<img src="https://github.com/duanebester/gooey/blob/main/assets/screenshots/gooey-shader.png" height="400px" />
+
 ## Features
 
 - **Metal Rendering** - Hardware-accelerated with MSAA anti-aliasing
