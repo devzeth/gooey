@@ -25,12 +25,12 @@ A minimal GPU-accelerated UI framework for Zig, targeting macOS with Metal rende
 
 ### Build & Run
 
-`bash
+```bash
 zig build run          # Run the showcase demo
 zig build run-simple   # Run the simple counter example
 zig build run-login    # Run the login form example
 zig build test         # Run tests
-`
+```
 
 ## Examples
 
@@ -39,132 +39,136 @@ zig build test         # Run tests
 The simplest way to get started - just a render function and plain struct state:
 
 ```zig
+//! Simple Counter Example
+//!
+//! Demonstrates the minimal gooey.run() API with:
+//! - Plain struct state
+//! - Button click handling
+//! - Components
+
 const std = @import("std");
 const gooey = @import("gooey");
 const ui = gooey.ui;
 
-// Plain struct state - no wrappers needed!
+// =============================================================================
+// Application State - just a plain struct!
+// =============================================================================
+
 var state = struct {
-count: i32 = 0,
+    count: i32 = 0,
+    message: []const u8 = "Click the buttons!",
 }{};
 
+// =============================================================================
+// Components
+// =============================================================================
+
+const Counter = struct {
+    // Buffer for formatting the count (static so it persists)
+    var count_buf: [32]u8 = undefined;
+
+    pub fn render(_: @This(), b: *ui.Builder) void {
+        const count_str = std.fmt.bufPrint(&count_buf, "{d}", .{state.count}) catch "?";
+
+        b.vstack(.{ .gap = 8, .alignment = .center }, .{
+            ui.text("Count:", .{ .size = 16, .color = ui.Color.rgb(0.3, 0.3, 0.3) }),
+            ui.text(count_str, .{ .size = 48 }),
+        });
+    }
+};
+
+const ButtonRow = struct {
+    pub fn render(_: @This(), b: *ui.Builder) void {
+        b.hstack(.{ .gap = 12 }, .{
+            ui.button("- Decrease", decrement),
+            ui.button("+ Increase", increment),
+        });
+    }
+};
+
+const Card = struct {
+    pub fn render(_: @This(), b: *ui.Builder) void {
+        b.box(.{
+            .padding = .{ .all = 32 },
+            .gap = 20,
+            .background = ui.Color.white,
+            .corner_radius = 12,
+            .alignment = .{ .main = .center, .cross = .center },
+            .direction = .column,
+        }, .{
+            ui.text(state.message, .{ .size = 14, .color = ui.Color.rgb(0.5, 0.5, 0.5) }),
+            Counter{},
+            ButtonRow{},
+            ui.button("Reset", reset),
+        });
+    }
+};
+
+// =============================================================================
+// Entry Point
+// =============================================================================
+
 pub fn main() !void {
-try gooey.run(.{
-.title = "Simple Counter",
-.width = 400,
-.height = 300,
-.render = render,
-});
+    try gooey.run(.{
+        .title = "Simple Counter",
+        .width = 400,
+        .height = 300,
+        .render = render,
+        .on_event = onEvent,
+    });
 }
 
-fn render(g: \*gooey.UI) void {
-const size = g.windowSize();
+// =============================================================================
+// Render Function
+// =============================================================================
 
-    g.box(.{
+fn render(g: *gooey.UI) void {
+    const size = g.windowSize();
+
+    g.boxWithId("root", .{
         .width = size.width,
         .height = size.height,
         .alignment = .{ .main = .center, .cross = .center },
     }, .{
         Card{},
     });
-
 }
 
-// Components are just structs with render()
-const Card = struct {
-pub fn render(\_: @This(), b: \*ui.Builder) void {
-b.box(.{
-.padding = .{ .all = 32 },
-.gap = 20,
-.background = ui.Color.white,
-.corner_radius = 12,
-.direction = .column,
-}, .{
-Counter{},
-ui.button("+ Increment", increment),
-});
-}
-};
-
-const Counter = struct {
-var buf: [32]u8 = undefined;
-
-    pub fn render(_: @This(), b: *ui.Builder) void {
-        const text = std.fmt.bufPrint(&buf, "{d}", .{state.count}) catch "?";
-        b.vstack(.{ .gap = 8, .alignment = .center }, .{
-            ui.text("Count:", .{ .size = 16 }),
-            ui.text(text, .{ .size = 48 }),
-        });
-    }
-
-};
+// =============================================================================
+// Event Handlers
+// =============================================================================
 
 fn increment() void {
-state.count += 1;
-}
-```
-
-### Login Form with Input Binding
-
-Text inputs with two-way data binding:
-
-```zig
-const gooey = @import("gooey");
-const ui = gooey.ui;
-
-var state = struct {
-username: []const u8 = "",
-password: []const u8 = "",
-}{};
-
-pub fn main() !void {
-try gooey.run(.{
-.title = "Login",
-.render = render,
-});
+    state.count += 1;
+    state.message = "Incremented!";
 }
 
-fn render(g: \*gooey.UI) void {
-g.center(.{}, .{
-LoginCard{},
-});
+fn decrement() void {
+    state.count -= 1;
+    state.message = "Decremented!";
 }
 
-const LoginCard = struct {
-pub fn render(\_: @This(), b: \*ui.Builder) void {
-b.box(.{
-.padding = .{ .all = 32 },
-.gap = 16,
-.background = ui.Color.white,
-.corner_radius = 12,
-.direction = .column,
-}, .{
-ui.text("Login", .{ .size = 24 }),
+fn reset() void {
+    state.count = 0;
+    state.message = "Reset to zero!";
+}
 
-            ui.input("username", .{
-                .placeholder = "Username",
-                .width = 250,
-                .bind = &state.username,
-            }),
-            ui.input("password", .{
-                .placeholder = "Password",
-                .secure = true,
-                .width = 250,
-                .bind = &state.password,
-            }),
-
-            ui.button("Sign In", submit),
-        });
+fn onEvent(_: *gooey.UI, event: gooey.InputEvent) bool {
+    if (event == .key_down) {
+        const key = event.key_down.key;
+        if (key == .escape) {
+            return true;
+        }
     }
-
-};
+    return false;
+}
 ```
 
 ## API Reference
 
 ### `gooey.run()` - Entry Point
 
-`zig
+```zig
 try gooey.run(.{
     .title = "My App",
     .width = 800,
@@ -172,28 +176,28 @@ try gooey.run(.{
     .render = myRenderFn,        // fn(*gooey.UI) void
     .on_event = myEventFn,       // Optional: fn(*gooey.UI, InputEvent) bool
 });
-`
+```
 
 ### Layout Containers
 
-`zig
+```zig
 fn render(g: *gooey.UI) void {
     g.box(style, children);      // Flexible container
     g.vstack(style, children);   // Vertical stack
     g.hstack(style, children);   // Horizontal stack
     g.center(style, children);   // Centered container
 }
-`
+```
 
 ### Primitives
 
-`zig
+```zig
 ui.text("Hello", .{ .size = 16, .color = ui.Color.black })
 ui.textFmt("Count: {d}", .{42}, .{})
 ui.button("Click", onClick)
 ui.input("id", .{ .placeholder = "...", .bind = &state.field })
 ui.spacer()
-`
+```
 
 ### Styles
 
