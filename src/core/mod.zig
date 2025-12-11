@@ -96,6 +96,28 @@ pub const EventPhase = event.EventPhase;
 pub const EventResult = event.EventResult;
 
 // =============================================================================
+// Action System
+// =============================================================================
+
+pub const action = @import("action.zig");
+
+pub const Keymap = action.Keymap;
+pub const Keystroke = action.Keystroke;
+pub const KeyBinding = action.KeyBinding;
+pub const actionTypeId = action.actionTypeId;
+
+// =============================================================================
+// Focus System
+// =============================================================================
+
+pub const focus = @import("focus.zig");
+
+pub const FocusManager = focus.FocusManager;
+pub const FocusId = focus.FocusId;
+pub const FocusHandle = focus.FocusHandle;
+pub const FocusEvent = focus.FocusEvent;
+
+// =============================================================================
 // Element Types
 // =============================================================================
 

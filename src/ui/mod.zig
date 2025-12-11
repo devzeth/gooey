@@ -29,6 +29,8 @@ pub const button = ui_impl.button;
 pub const buttonStyled = ui_impl.buttonStyled;
 pub const checkbox = ui_impl.checkbox;
 pub const empty = ui_impl.empty;
+pub const keyContext = ui_impl.keyContext;
+pub const onAction = ui_impl.onAction;
 
 // Primitive types
 pub const Text = ui_impl.Text;
@@ -37,6 +39,8 @@ pub const Spacer = ui_impl.Spacer;
 pub const Button = ui_impl.Button;
 pub const Empty = ui_impl.Empty;
 pub const CheckboxPrimitive = ui_impl.CheckboxPrimitive;
+pub const KeyContextPrimitive = ui_impl.KeyContextPrimitive;
+pub const ActionHandlerPrimitive = ui_impl.ActionHandlerPrimitive;
 pub const PrimitiveType = ui_impl.PrimitiveType;
 
 // Styles

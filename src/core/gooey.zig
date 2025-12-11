@@ -32,6 +32,12 @@ const TextConfig = layout_mod.TextConfig;
 const RenderCommand = layout_mod.RenderCommand;
 const TextMeasurement = engine_mod.TextMeasurement;
 
+const dispatch_mod = @import("dispatch.zig");
+const DispatchTree = dispatch_mod.DispatchTree;
+
+const action_mod = @import("action.zig");
+const Keymap = action_mod.Keymap;
+
 // Scene
 const scene_mod = @import("scene.zig");
 const Scene = scene_mod.Scene;
@@ -81,6 +87,12 @@ pub const Gooey = struct {
     // Focus management
     focus: FocusManager,
 
+    /// Dispatch tree for event routing
+    dispatch: *DispatchTree,
+
+    /// Keymap for action bindings
+    keymap: Keymap,
+
     // Platform
     window: *Window,
 
@@ -104,10 +116,15 @@ pub const Gooey = struct {
         scene: *Scene,
         text_system: *TextSystem,
     ) Self {
+        const dispatch = try allocator.create(DispatchTree);
+        errdefer allocator.destroy(dispatch);
+        dispatch.* = DispatchTree.init(allocator);
         return .{
             .allocator = allocator,
             .layout = layout_engine,
             .scene = scene,
+            .dispatch = dispatch,
+            .keymap = Keymap.init(allocator),
             .focus = FocusManager.init(allocator),
             .text_system = text_system,
             .widgets = WidgetStore.init(allocator),
@@ -150,12 +167,18 @@ pub const Gooey = struct {
         // Set up text measurement callback
         layout_engine.setMeasureTextFn(measureTextCallback, text_system);
 
+        const dispatch = try allocator.create(DispatchTree);
+        errdefer allocator.destroy(dispatch);
+        dispatch.* = DispatchTree.init(allocator);
+
         return .{
             .allocator = allocator,
             .layout = layout_engine,
             .layout_owned = true,
             .scene = scene,
             .scene_owned = true,
+            .dispatch = dispatch,
+            .keymap = Keymap.init(allocator),
             .focus = FocusManager.init(allocator),
             .text_system = text_system,
             .text_system_owned = true,
@@ -170,6 +193,12 @@ pub const Gooey = struct {
     pub fn deinit(self: *Self) void {
         self.widgets.deinit();
         self.focus.deinit();
+
+        // Clean up dispatch tree
+        self.dispatch.deinit();
+        self.allocator.destroy(self.dispatch);
+
+        self.keymap.deinit();
 
         if (self.text_system_owned) {
             self.text_system.deinit();
@@ -249,6 +278,8 @@ pub const Gooey = struct {
     /// Focus a TextInput by ID
     pub fn focusTextInput(self: *Self, id: []const u8) void {
         self.widgets.focusTextInput(id);
+        // Also update FocusManager so action dispatch works
+        self.focus.focusByName(id);
         self.requestRender();
     }
 

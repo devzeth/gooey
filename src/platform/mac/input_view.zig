@@ -351,9 +351,31 @@ fn selectedRange(_: objc.c.id, _: objc.c.SEL) callconv(.c) NSRange {
     return .{ .location = 0, .length = 0 };
 }
 
-fn performKeyEquivalent(_: objc.c.id, _: objc.c.SEL, _: objc.c.id) callconv(.c) bool {
-    // Return false to let the system handle key equivalents
-    // This allows Cmd+Ctrl+Space (emoji picker) and other system shortcuts to work
+fn performKeyEquivalent(self: objc.c.id, _: objc.c.SEL, event_id: objc.c.id) callconv(.c) bool {
+    const window = getWindow(self) orelse return false;
+    const event = objc.Object{ .value = event_id };
+
+    const key_code = event.msgSend(u16, "keyCode", .{});
+    const modifier_flags = event.msgSend(c_ulong, "modifierFlags", .{});
+    const mods = parseModifiers(modifier_flags);
+
+    // Only handle events with command modifier (key equivalents)
+    if (mods.cmd) {
+        const key_event = input.KeyEvent{
+            .key = input.KeyCode.from(key_code),
+            .modifiers = mods,
+            .characters = null, // Don't get characters - can crash for key equivalents
+            .characters_ignoring_modifiers = null,
+            .is_repeat = false,
+        };
+
+        // Send to our input handler - if it returns true, we handled it
+        if (window.handleInput(.{ .key_down = key_event })) {
+            return true;
+        }
+    }
+
+    // Return false to let the system handle unhandled key equivalents
     return false;
 }
 

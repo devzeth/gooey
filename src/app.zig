@@ -40,9 +40,11 @@ const text_mod = @import("text/mod.zig");
 const input_mod = @import("core/input.zig");
 const geometry_mod = @import("core/geometry.zig");
 const ui_mod = @import("ui/ui.zig");
+const dispatch_mod = @import("core/dispatch.zig");
 const scroll_mod = @import("elements/scroll_container.zig");
 
 const MacPlatform = platform_mod.MacPlatform;
+const DispatchNodeId = dispatch_mod.DispatchNodeId;
 const Window = window_mod.Window;
 const Gooey = gooey_mod.Gooey;
 const Scene = scene_mod.Scene;
@@ -204,7 +206,12 @@ pub fn run(config: RunConfig) !void {
     defer gooey_ctx.deinit();
 
     // Initialize UI Builder
-    var builder = Builder.init(allocator, gooey_ctx.layout, gooey_ctx.scene);
+    var builder = Builder.init(
+        allocator,
+        gooey_ctx.layout,
+        gooey_ctx.scene,
+        gooey_ctx.dispatch,
+    );
     defer builder.deinit();
     builder.gooey = &gooey_ctx;
 
@@ -256,20 +263,28 @@ pub fn run(config: RunConfig) !void {
                 }
             }
 
-            // First, let UI handle click events for buttons and inputs
+            // Handle mouse down through dispatch tree
             if (event == .mouse_down) {
                 const pos = event.mouse_down.position;
                 const x: f32 = @floatCast(pos.x);
                 const y: f32 = @floatCast(pos.y);
 
-                // Check checkbox hits first
+                // First try dispatch tree (new system)
+                if (g_ui.gooey.dispatch.hitTest(x, y)) |target| {
+                    if (g_ui.gooey.dispatch.dispatchClick(target)) {
+                        g_ui.requestRender();
+                        return true;
+                    }
+                }
+
+                // Fall back to old system for widgets not yet migrated
+                // (checkboxes, scroll containers, input focus)
                 for (g_ui.builder.pending_checkboxes.items) |pending| {
                     const bounds = g_ui.gooey.layout.getBoundingBox(pending.layout_id.id);
                     if (bounds) |b| {
                         if (x >= b.x and x < b.x + b.width and y >= b.y and y < b.y + b.height) {
                             if (g_ui.gooey.widgets.checkbox(pending.id)) |cb| {
                                 cb.toggle();
-                                // Sync back to bound variable
                                 if (pending.style.bind) |bind_ptr| {
                                     bind_ptr.* = cb.isChecked();
                                 }
@@ -280,7 +295,8 @@ pub fn run(config: RunConfig) !void {
                     }
                 }
 
-                if (g_ui.builder.handleClick(@floatCast(pos.x), @floatCast(pos.y))) {
+                // Legacy: handleClick for hit_regions (can remove once all migrated)
+                if (g_ui.builder.handleClick(x, y)) {
                     g_ui.requestRender();
                     return true;
                 }
@@ -304,6 +320,43 @@ pub fn run(config: RunConfig) !void {
                         return true;
                     }
 
+                    // Try action dispatch through focus path first
+                    if (g_ui.gooey.focus.getFocused()) |focus_id| {
+                        var path_buf: [64]DispatchNodeId = undefined;
+                        if (g_ui.gooey.dispatch.focusPath(focus_id, &path_buf)) |path| {
+                            // Build context stack
+                            var ctx_buf: [64][]const u8 = undefined;
+                            const contexts = g_ui.gooey.dispatch.contextStack(path, &ctx_buf);
+
+                            // Check if keystroke matches an action
+                            if (g_ui.gooey.keymap.match(k.key, k.modifiers, contexts)) |binding| {
+                                if (g_ui.gooey.dispatch.dispatchAction(binding.action_type, path)) {
+                                    g_ui.requestRender();
+                                    return true;
+                                }
+                            }
+
+                            // Try raw key dispatch
+                            if (g_ui.gooey.dispatch.dispatchKeyDown(focus_id, k)) {
+                                g_ui.requestRender();
+                                return true;
+                            }
+                        }
+                    } else {
+                        // Nothing focused - try global actions from root
+                        var path_buf: [64]DispatchNodeId = undefined;
+                        if (g_ui.gooey.dispatch.rootPath(&path_buf)) |path| {
+                            // No context when nothing is focused
+                            if (g_ui.gooey.keymap.match(k.key, k.modifiers, &.{})) |binding| {
+                                if (g_ui.gooey.dispatch.dispatchAction(binding.action_type, path)) {
+                                    g_ui.requestRender();
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+
+                    // Fall back to direct TextInput handling
                     if (g_ui.gooey.getFocusedTextInput()) |input| {
                         if (isControlKey(k.key, k.modifiers)) {
                             input.handleKey(k) catch {};
@@ -313,7 +366,6 @@ pub fn run(config: RunConfig) !void {
                         }
                     }
                 },
-
                 .text_input => |t| {
                     if (g_ui.gooey.getFocusedTextInput()) |input| {
                         input.insertText(t.text) catch {};
@@ -357,13 +409,15 @@ pub fn run(config: RunConfig) !void {
 
 /// Internal: render a single frame
 fn renderFrame(ui: *UI, render_fn: *const fn (*UI) void) !void {
+    // Reset dispatch tree for new frame
+    ui.gooey.dispatch.reset();
+
     ui.gooey.beginFrame();
 
     // Reset builder state
     ui.builder.id_counter = 0;
     ui.builder.hit_regions.clearRetainingCapacity();
     ui.builder.pending_inputs.clearRetainingCapacity();
-    ui.builder.pending_buttons.clearRetainingCapacity();
     ui.builder.input_regions.clearRetainingCapacity();
     ui.builder.pending_checkboxes.clearRetainingCapacity();
     ui.builder.pending_scrolls.clearRetainingCapacity();
@@ -374,8 +428,14 @@ fn renderFrame(ui: *UI, render_fn: *const fn (*UI) void) !void {
     // End frame and get render commands
     const commands = try ui.gooey.endFrame();
 
+    // Sync bounds from layout to dispatch tree
+    for (ui.gooey.dispatch.nodes.items) |*node| {
+        if (node.layout_id) |layout_id| {
+            node.bounds = ui.gooey.layout.getBoundingBox(layout_id);
+        }
+    }
+
     // Register hit regions (after layout computed bounds)
-    ui.builder.registerPendingHitRegions();
     ui.builder.registerPendingInputRegions();
     ui.builder.registerPendingCheckboxRegions();
     ui.builder.registerPendingScrollRegions();
@@ -399,6 +459,8 @@ fn renderFrame(ui: *UI, render_fn: *const fn (*UI) void) !void {
                     .width = b.width,
                     .height = b.height,
                 };
+                // Set placeholder from style
+                input_widget.setPlaceholder(pending.style.placeholder);
                 try input_widget.render(ui.gooey.scene, ui.gooey.text_system, ui.gooey.scale_factor);
             }
         }

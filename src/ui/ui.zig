@@ -18,6 +18,14 @@
 const std = @import("std");
 
 // Import from gooey core
+const dispatch_mod = @import("../core/dispatch.zig");
+const DispatchTree = dispatch_mod.DispatchTree;
+const DispatchNodeId = dispatch_mod.DispatchNodeId;
+const focus_mod = @import("../core/focus.zig");
+const FocusId = focus_mod.FocusId;
+const FocusHandle = focus_mod.FocusHandle;
+const action_mod = @import("../core/action.zig");
+const actionTypeId = action_mod.actionTypeId;
 const layout_mod = @import("../layout/layout.zig");
 const LayoutEngine = layout_mod.LayoutEngine;
 const LayoutId = layout_mod.LayoutId;
@@ -25,7 +33,6 @@ const Sizing = layout_mod.Sizing;
 const SizingAxis = layout_mod.SizingAxis;
 const Padding = layout_mod.Padding;
 const CornerRadius = layout_mod.CornerRadius;
-// const ShadowConfig = layout_mod.ShadowConfig;
 const ChildAlignment = layout_mod.ChildAlignment;
 const LayoutDirection = layout_mod.LayoutDirection;
 const LayoutConfig = layout_mod.LayoutConfig;
@@ -176,7 +183,7 @@ pub const ButtonStyle = struct {
 // Primitive Descriptors
 // =============================================================================
 
-pub const PrimitiveType = enum { text, input, spacer, button, empty, checkbox };
+pub const PrimitiveType = enum { text, input, spacer, button, empty, checkbox, key_context, action_handler };
 
 pub const CheckboxStyle = struct {
     label: []const u8 = "",
@@ -195,6 +202,19 @@ pub const CheckboxPrimitive = struct {
     id: []const u8,
     style: CheckboxStyle,
     pub const primitive_type: PrimitiveType = .checkbox;
+};
+
+/// Key context descriptor - sets dispatch context when rendered
+pub const KeyContextPrimitive = struct {
+    context: []const u8,
+    pub const primitive_type: PrimitiveType = .key_context;
+};
+
+/// Action handler descriptor - registers action handler when rendered
+pub const ActionHandlerPrimitive = struct {
+    action_type: usize, // ActionTypeId
+    callback: *const fn () void,
+    pub const primitive_type: PrimitiveType = .action_handler;
 };
 
 /// Text element descriptor
@@ -288,6 +308,19 @@ pub fn checkbox(id: []const u8, style: CheckboxStyle) CheckboxPrimitive {
     return .{ .id = id, .style = style };
 }
 
+/// Set key context for dispatch (use inside box children)
+pub fn keyContext(context: []const u8) KeyContextPrimitive {
+    return .{ .context = context };
+}
+
+/// Register an action handler (use inside box children)
+pub fn onAction(comptime Action: type, callback: *const fn () void) ActionHandlerPrimitive {
+    return .{
+        .action_type = actionTypeId(Action),
+        .callback = callback,
+    };
+}
+
 /// Create a button
 pub fn button(label: []const u8, on_click: ?*const fn () void) Button {
     return .{ .label = label, .on_click = on_click };
@@ -325,14 +358,14 @@ pub const Builder = struct {
     gooey: ?*Gooey = null,
     id_counter: u32 = 0,
 
+    /// Dispatch tree for event routing (built alongside layout)
+    dispatch: *DispatchTree,
+
     /// Hit regions for click detection (populated after layout)
     hit_regions: std.ArrayList(HitRegion),
 
     /// Pending input IDs to be rendered (collected during layout, rendered after)
     pending_inputs: std.ArrayList(PendingInput),
-
-    /// Pending buttons for click registration (collected during layout, registered after)
-    pending_buttons: std.ArrayList(PendingButton),
 
     /// Input hit regions for focus handling (populated after layout)
     input_regions: std.ArrayList(InputHitRegion),
@@ -347,11 +380,6 @@ pub const Builder = struct {
         style: InputStyle,
     };
 
-    const PendingButton = struct {
-        layout_id: LayoutId,
-        on_click: *const fn () void,
-    };
-
     const PendingCheckbox = struct {
         id: []const u8,
         layout_id: LayoutId,
@@ -360,14 +388,19 @@ pub const Builder = struct {
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, layout_engine: *LayoutEngine, scene_ptr: *Scene) Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        layout_engine: *LayoutEngine,
+        scene_ptr: *Scene,
+        dispatch_tree: *DispatchTree,
+    ) Self {
         return .{
             .allocator = allocator,
             .layout = layout_engine,
             .scene = scene_ptr,
+            .dispatch = dispatch_tree,
             .hit_regions = .{},
             .pending_inputs = .{},
-            .pending_buttons = .{},
             .pending_checkboxes = .{},
             .pending_scrolls = .{},
             .input_regions = .{},
@@ -377,7 +410,6 @@ pub const Builder = struct {
     pub fn deinit(self: *Self) void {
         self.hit_regions.deinit(self.allocator);
         self.pending_inputs.deinit(self.allocator);
-        self.pending_buttons.deinit(self.allocator);
         self.pending_checkboxes.deinit(self.allocator);
         self.input_regions.deinit(self.allocator);
         self.pending_scrolls.deinit(self.allocator);
@@ -442,6 +474,10 @@ pub const Builder = struct {
     pub fn boxWithId(self: *Self, id: ?[]const u8, style: BoxStyle, children: anytype) void {
         const layout_id = if (id) |i| LayoutId.fromString(i) else self.generateId();
 
+        // Push dispatch node at element open
+        _ = self.dispatch.pushNode();
+        self.dispatch.setLayoutId(layout_id.id);
+
         var sizing = Sizing.fitContent();
 
         if (style.width) |w| {
@@ -497,6 +533,8 @@ pub const Builder = struct {
         self.processChildren(children);
 
         self.layout.closeElement();
+        // Pop dispatch node at element close
+        self.dispatch.popNode();
     }
 
     /// Vertical stack (column)
@@ -749,6 +787,8 @@ pub const Builder = struct {
                 .spacer => self.renderSpacer(child),
                 .button => self.renderButton(child),
                 .checkbox => self.renderCheckbox(child),
+                .key_context => self.renderKeyContext(child),
+                .action_handler => self.renderActionHandler(child),
                 .empty => {}, // Do nothing
             }
             return;
@@ -783,6 +823,14 @@ pub const Builder = struct {
     fn renderInput(self: *Self, inp: Input) void {
         const layout_id = LayoutId.fromString(inp.id);
 
+        // Push dispatch node
+        _ = self.dispatch.pushNode();
+        self.dispatch.setLayoutId(layout_id.id);
+
+        // Register as focusable
+        const focus_id = FocusId.init(inp.id);
+        self.dispatch.setFocusable(focus_id);
+
         // Create placeholder in layout
         const input_width = inp.style.width orelse 200;
         self.layout.openElement(.{
@@ -793,40 +841,27 @@ pub const Builder = struct {
                     .height = SizingAxis.fixed(inp.style.height),
                 },
             },
-        }) catch return;
+        }) catch {
+            self.dispatch.popNode();
+            return;
+        };
         self.layout.closeElement();
 
-        // Store for later rendering
+        // Store for later rendering (ONLY ONCE!)
         self.pending_inputs.append(self.allocator, .{
             .id = inp.id,
             .layout_id = layout_id,
             .style = inp.style,
         }) catch {};
 
-        // Set up the actual TextInput widget if we have access to Gooey
+        // Register focus with FocusManager
         if (self.gooey) |g| {
-            // Register with focus system using style's tab settings
-            g.registerFocusable(inp.id, inp.style.tab_index, inp.style.tab_stop);
-            if (g.textInput(inp.id)) |text_input| {
-                if (inp.style.placeholder.len > 0) {
-                    text_input.setPlaceholder(inp.style.placeholder);
-                }
-
-                // Two-way binding: sync TextInput content with bound variable
-                if (inp.style.bind) |bind_ptr| {
-                    const current_text = text_input.getText();
-                    const bound_value = bind_ptr.*;
-
-                    // Skip if they're the same pointer (would alias)
-                    if (current_text.ptr == bound_value.ptr and current_text.len == bound_value.len) {
-                        // Already in sync, nothing to do
-                    } else if (!std.mem.eql(u8, current_text, bound_value)) {
-                        // If bound variable changed externally, update TextInput
-                        text_input.setText(bound_value) catch {};
-                    }
-                }
-            }
+            g.focus.register(FocusHandle.init(inp.id)
+                .tabIndex(inp.style.tab_index)
+                .tabStop(inp.style.tab_stop));
         }
+
+        self.dispatch.popNode();
     }
 
     fn renderSpacer(self: *Self, spc: Spacer) void {
@@ -845,6 +880,10 @@ pub const Builder = struct {
 
     fn renderButton(self: *Self, btn: Button) void {
         const layout_id = self.generateId();
+
+        // Push dispatch node for this button
+        _ = self.dispatch.pushNode();
+        self.dispatch.setLayoutId(layout_id.id);
 
         const bg = switch (btn.style.style) {
             .primary => if (btn.style.enabled)
@@ -868,7 +907,10 @@ pub const Builder = struct {
             },
             .background_color = bg,
             .corner_radius = CornerRadius.all(6),
-        }) catch return;
+        }) catch {
+            self.dispatch.popNode();
+            return;
+        };
 
         self.layout.text(btn.label, .{
             .color = fg,
@@ -877,15 +919,14 @@ pub const Builder = struct {
 
         self.layout.closeElement();
 
-        // Store for deferred hit region registration (after layout computes bounds)
+        // Register click handler with dispatch tree (NEW)
         if (btn.on_click) |callback| {
             if (btn.style.enabled) {
-                self.pending_buttons.append(self.allocator, .{
-                    .layout_id = layout_id,
-                    .on_click = callback,
-                }) catch {};
+                self.dispatch.onClick(callback);
             }
         }
+
+        self.dispatch.popNode();
     }
 
     fn renderCheckbox(self: *Self, cb: CheckboxPrimitive) void {
@@ -950,17 +991,17 @@ pub const Builder = struct {
         }
     }
 
-    /// Register hit regions for all pending buttons (call after endFrame)
-    pub fn registerPendingHitRegions(self: *Self) void {
-        for (self.pending_buttons.items) |pending| {
-            const bounds = self.layout.getBoundingBox(pending.layout_id.id);
-            if (bounds) |b| {
-                self.hit_regions.append(self.allocator, .{
-                    .bounds = b,
-                    .on_click = pending.on_click,
-                    .id = pending.layout_id.id,
-                }) catch {};
-            }
+    fn renderKeyContext(self: *Self, ctx: KeyContextPrimitive) void {
+        self.dispatch.setKeyContext(ctx.context);
+    }
+
+    fn renderActionHandler(self: *Self, handler: ActionHandlerPrimitive) void {
+        const node_id = self.dispatch.currentNode();
+        if (self.dispatch.getNode(node_id)) |node| {
+            node.action_listeners.append(self.allocator, .{
+                .action_type = handler.action_type,
+                .callback = handler.callback,
+            }) catch {};
         }
     }
 

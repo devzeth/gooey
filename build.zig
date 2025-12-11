@@ -161,6 +161,31 @@ pub fn build(b: *std.Build) void {
     run_focus_cmd.step.dependOn(b.getInstallStep());
 
     // =========================================================================
+    // Actions Demo Example
+    // =========================================================================
+
+    const actions_exe = b.addExecutable(.{
+        .name = "actions_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/examples/actions.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "gooey", .module = mod },
+                .{ .name = "objc", .module = objc_dep.module("objc") },
+            },
+        }),
+    });
+
+    b.installArtifact(actions_exe);
+
+    // Run focus demo
+    const run_actions_step = b.step("run-actions", "Run the actions demo");
+    const run_actions_cmd = b.addRunArtifact(actions_exe);
+    run_actions_step.dependOn(&run_actions_cmd.step);
+    run_actions_cmd.step.dependOn(b.getInstallStep());
+
+    // =========================================================================
     // Tests
     // =========================================================================
 
