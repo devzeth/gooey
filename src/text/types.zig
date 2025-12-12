@@ -17,6 +17,21 @@ pub const SystemFont = enum {
     system,
 };
 
+/// Text decoration style
+pub const TextDecoration = packed struct {
+    underline: bool = false,
+    strikethrough: bool = false,
+    _padding: u6 = 0,
+
+    pub const none = TextDecoration{};
+    pub const underlined = TextDecoration{ .underline = true };
+    pub const struckthrough = TextDecoration{ .strikethrough = true };
+
+    pub inline fn hasAny(self: TextDecoration) bool {
+        return self.underline or self.strikethrough;
+    }
+};
+
 /// Font metrics computed once at load time
 pub const Metrics = struct {
     /// Design units per em
@@ -50,6 +65,17 @@ pub const Metrics = struct {
         const text_height = self.ascender + self.descender;
         const padding_top = (box_height - text_height) * 0.5;
         return box_y + padding_top + self.ascender;
+    }
+
+    /// Calculate strikethrough position (center of x-height, relative to baseline)
+    /// Returns negative value (above baseline)
+    pub inline fn strikethroughPosition(self: Metrics) f32 {
+        return -(self.x_height * 0.5);
+    }
+
+    /// Get strikethrough thickness (same as underline by default)
+    pub inline fn strikethroughThickness(self: Metrics) f32 {
+        return self.underline_thickness;
     }
 };
 

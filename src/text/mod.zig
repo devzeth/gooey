@@ -37,6 +37,7 @@ pub const ShapedGlyph = types.ShapedGlyph;
 pub const ShapedRun = types.ShapedRun;
 pub const TextMeasurement = types.TextMeasurement;
 pub const SystemFont = types.SystemFont;
+pub const TextDecoration = types.TextDecoration;
 pub const RasterizedGlyph = types.RasterizedGlyph;
 
 // Interfaces
@@ -56,6 +57,7 @@ pub const cache = @import("cache.zig");
 // Text rendering utility
 pub const render = @import("render.zig");
 pub const renderText = render.renderText;
+pub const RenderTextOptions = render.RenderTextOptions;
 
 pub const GlyphCache = cache.GlyphCache;
 pub const CachedGlyph = cache.CachedGlyph;

@@ -83,6 +83,8 @@ pub const TextData = struct {
     font_id: u16,
     font_size: u16,
     letter_spacing: i16 = 0,
+    underline: bool = false,
+    strikethrough: bool = false,
 };
 
 /// Data for image rendering

@@ -929,6 +929,8 @@ pub const LayoutEngine = struct {
                             .font_id = td.config.font_id,
                             .font_size = td.config.font_size,
                             .letter_spacing = td.config.letter_spacing,
+                            .underline = td.config.decoration.underline,
+                            .strikethrough = td.config.decoration.strikethrough,
                         } },
                     });
                 }
@@ -944,6 +946,8 @@ pub const LayoutEngine = struct {
                         .font_id = td.config.font_id,
                         .font_size = td.config.font_size,
                         .letter_spacing = td.config.letter_spacing,
+                        .underline = td.config.decoration.underline,
+                        .strikethrough = td.config.decoration.strikethrough,
                     } },
                 });
             }

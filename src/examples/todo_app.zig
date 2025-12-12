@@ -179,7 +179,11 @@ const TodoItem = struct {
             ui.checkbox(checkbox_id, .{
                 .bind = &data.completed,
             }),
-            ui.text(data.text, .{ .size = 16, .color = text_color }),
+            ui.text(data.text, .{
+                .size = 16,
+                .color = text_color,
+                .strikethrough = data.completed,
+            }),
         });
     }
 };
@@ -261,7 +265,11 @@ const Footer = struct {
         const active = s.activeCount(cx.gooey);
 
         b.hstack(.{ .gap = 16, .alignment = .center }, .{
-            ui.textFmt("{} items left", .{active}, .{ .size = 14, .color = ui.Color.rgb(0.5, 0.5, 0.5) }),
+            ui.textFmt("{} items left", .{active}, .{
+                .size = 14,
+                .color = ui.Color.rgb(0.5, 0.5, 0.5),
+                .underline = active > 0,
+            }),
             FilterBar{},
             ui.buttonHandler("Clear completed", cx.handler(AppState.clearCompleted)),
         });

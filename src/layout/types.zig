@@ -567,8 +567,15 @@ pub const TextConfig = struct {
     letter_spacing: i16 = 0,
     line_height: u16 = 120,
     wrap_mode: WrapMode = .none,
+    decoration: TextDecorationConfig = .{},
 
     pub const WrapMode = enum { none, words, newlines };
+
+    pub const TextDecorationConfig = packed struct {
+        underline: bool = false,
+        strikethrough: bool = false,
+        _padding: u6 = 0,
+    };
 
     /// Calculate line height in pixels
     pub fn lineHeightPx(self: TextConfig) f32 {

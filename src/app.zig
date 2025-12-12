@@ -916,7 +916,13 @@ fn renderCommand(gooey_ctx: *Gooey, cmd: layout_mod.RenderCommand) !void {
                 baseline_y,
                 gooey_ctx.scale_factor,
                 render_bridge.colorToHsla(text_data.color),
-                .{ .clipped = use_clip },
+                .{
+                    .clipped = use_clip,
+                    .decoration = .{
+                        .underline = text_data.underline,
+                        .strikethrough = text_data.strikethrough,
+                    },
+                },
             );
         },
         .scissor_start => {

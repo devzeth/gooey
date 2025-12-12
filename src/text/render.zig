@@ -2,16 +2,21 @@
 
 const std = @import("std");
 const Scene = @import("../core/scene.zig").Scene;
+const Quad = @import("../core/scene.zig").Quad;
 const GlyphInstance = @import("../core/scene.zig").GlyphInstance;
 const TextSystem = @import("text_system.zig").TextSystem;
 const Hsla = @import("../core/mod.zig").Hsla;
 const types = @import("types.zig");
+const TextDecoration = types.TextDecoration;
 
 const SUBPIXEL_VARIANTS_X = types.SUBPIXEL_VARIANTS_X;
 const SUBPIXEL_VARIANTS_F: f32 = @floatFromInt(SUBPIXEL_VARIANTS_X);
 
 pub const RenderTextOptions = struct {
     clipped: bool = true,
+    decoration: TextDecoration = .{},
+    /// Optional separate color for decorations (uses text color if null)
+    decoration_color: ?Hsla = null,
 };
 
 pub fn renderText(
@@ -67,6 +72,46 @@ pub fn renderText(
         }
 
         pen_x += glyph.x_advance;
+    }
+
+    // Render decorations if any
+    if (options.decoration.hasAny()) {
+        if (text_system.getMetrics()) |metrics| {
+            const decoration_color = options.decoration_color orelse color;
+            const text_width = shaped.width;
+
+            // Underline
+            if (options.decoration.underline) {
+                // underline_position is negative (below baseline)
+                const underline_y = baseline_y - metrics.underline_position;
+                const thickness = @max(1.0, metrics.underline_thickness);
+
+                const underline_quad = Quad.filled(
+                    x,
+                    underline_y,
+                    text_width,
+                    thickness,
+                    decoration_color,
+                );
+                try scene.insertQuad(underline_quad);
+            }
+
+            // Strikethrough
+            if (options.decoration.strikethrough) {
+                // strikethrough goes through the middle of x-height
+                const strike_y = baseline_y - (metrics.x_height * 0.5);
+                const thickness = @max(1.0, metrics.underline_thickness);
+
+                const strike_quad = Quad.filled(
+                    x,
+                    strike_y,
+                    text_width,
+                    thickness,
+                    decoration_color,
+                );
+                try scene.insertQuad(strike_quad);
+            }
+        }
     }
 
     return shaped.width;

@@ -75,6 +75,8 @@ pub const TextStyle = struct {
     weight: Weight = .regular,
     italic: bool = false,
     wrap: WrapMode = .none,
+    underline: bool = false,
+    strikethrough: bool = false,
 
     pub const Weight = enum { thin, light, regular, medium, semibold, bold, black };
     pub const WrapMode = enum { none, words, newlines };
@@ -944,6 +946,10 @@ pub const Builder = struct {
                 .none => .none,
                 .words => .words,
                 .newlines => .newlines,
+            },
+            .decoration = .{
+                .underline = txt.style.underline,
+                .strikethrough = txt.style.strikethrough,
             },
         }) catch return;
     }
